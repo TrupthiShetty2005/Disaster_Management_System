@@ -1,0 +1,143 @@
+%% ER from backend/app/models/entities.py
+%% All PKs are String(36). Spatial fields are JSON GeoJSON, not PostGIS Geometry.
+%% No Index() declarations found on models.
+
+erDiagram
+  Location ||--o{ Disaster : location_id
+  Location ||--o{ RiskZone : location_id
+  Location ||--o{ WeatherObservation : location_id
+  Location ||--o{ WeatherForecast : location_id
+  Location ||--o{ SatelliteImage : location_id
+  Location ||--o{ Infrastructure : location_id
+  Location ||--o{ Road : location_id
+  Location ||--o{ Building : location_id
+  Location ||--o{ RescueResource : location_id
+  Location ||--o{ EvacuationCenter : location_id
+  Location ||--o{ Alert : location_id
+  Disaster ||--o{ FloodEvent : disaster_id
+  Disaster ||--o{ DamageAssessment : disaster_id
+  Disaster ||--o{ RescuePriority : disaster_id
+  Disaster ||--o{ RescuePlan : disaster_id
+  SatelliteImage ||--o{ ImageAnalysisResult : satellite_image_id
+  ImageAnalysisResult ||--o{ DetectedObject : analysis_id
+  User ||--o{ AuditLog : actor_id
+
+  Location {
+    string id PK
+    string name
+    float latitude
+    float longitude
+    json geojson "spatial JSON"
+  }
+  Disaster {
+    string id PK
+    string title
+    string disaster_type
+    string phase
+    string location_id FK
+    json geojson "spatial JSON"
+    int people_at_risk
+  }
+  RiskZone {
+    string id PK
+    string location_id FK
+    float risk_score
+    json geojson "spatial JSON"
+  }
+  WeatherObservation {
+    string id PK
+    string location_id FK
+    float rainfall_mm
+  }
+  WeatherForecast {
+    string id PK
+    string location_id FK
+  }
+  SatelliteImage {
+    string id PK
+    string location_id FK
+    json bbox_geojson "spatial JSON"
+  }
+  ImageAnalysisResult {
+    string id PK
+    string satellite_image_id FK
+    json result_geojson "spatial JSON"
+  }
+  DetectedObject {
+    string id PK
+    string analysis_id FK
+    json bbox_geojson "spatial JSON"
+  }
+  FloodEvent {
+    string id PK
+    string disaster_id FK
+    json geojson "spatial JSON"
+  }
+  FloodAnalysis {
+    string id PK
+    json boundary_geojson "spatial JSON"
+    json heatmap_geojson "spatial JSON"
+  }
+  DamageAssessment {
+    string id PK
+    string disaster_id FK
+    json geojson "spatial JSON"
+  }
+  DamageReport {
+    string id PK
+    json overlay_geojson "spatial JSON"
+    json report
+  }
+  Infrastructure {
+    string id PK
+    string location_id FK
+    json geojson "spatial JSON"
+  }
+  Road {
+    string id PK
+    string location_id FK
+    string accessibility
+    json geojson "spatial JSON"
+  }
+  Building {
+    string id PK
+    string location_id FK
+    json geojson "spatial JSON"
+  }
+  RescueResource {
+    string id PK
+    string location_id FK
+    json geojson "spatial JSON"
+  }
+  EvacuationCenter {
+    string id PK
+    string location_id FK
+    json geojson "spatial JSON"
+  }
+  RescuePriority {
+    string id PK
+    string disaster_id FK
+    json geojson "spatial JSON"
+  }
+  RescuePlan {
+    string id PK
+    string disaster_id FK
+    json payload
+  }
+  Alert {
+    string id PK
+    string location_id FK
+    json signals
+  }
+  User {
+    string id PK
+    string email
+  }
+  AuditLog {
+    string id PK
+    string actor_id FK
+  }
+  VisionJob {
+    string id PK
+    json detections
+  }

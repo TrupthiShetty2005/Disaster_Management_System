@@ -1,0 +1,46 @@
+# Live / REAL DATA overlay for VisionGuard.
+# Usage:
+#   copy .env.live.example → .env.live  (fill secrets; never commit secrets)
+#   docker compose --env-file .env.live -f docker-compose.yml -f docker-compose.live.yml up --build
+#
+# This file forces LIVE flags. Secrets come from .env.live / environment — not hard-coded here.
+
+services:
+  backend:
+    environment:
+      USE_MOCK_PROVIDERS: "false"
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
+      OPENWEATHER_QUERY: ${OPENWEATHER_QUERY:-Bengaluru,IN}
+      NASA_POWER_ENABLED: "true"
+      IMD_API_KEY: ${IMD_API_KEY:-}
+      COPERNICUS_CLIENT_ID: ${COPERNICUS_CLIENT_ID:-}
+      COPERNICUS_CLIENT_SECRET: ${COPERNICUS_CLIENT_SECRET:-}
+      COPERNICUS_STAC_URL: ${COPERNICUS_STAC_URL:-https://stac.dataspace.copernicus.eu/v1}
+      GIS_OVERPASS_ENABLED: "true"
+      YOLO_WEIGHTS_PATH: ${YOLO_WEIGHTS_PATH:-}
+      ENABLE_REAL_EMAIL: "false"
+      ENABLE_REAL_SMS: "false"
+      ENABLE_REAL_PUSH: "false"
+      DEMO_LATITUDE: ${DEMO_LATITUDE:-12.9716}
+      DEMO_LONGITUDE: ${DEMO_LONGITUDE:-77.5946}
+      AOI_NAME: ${AOI_NAME:-Karnataka / Bengaluru (India)}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_USE_MOCK: "false"
+    depends_on:
+      backend:
+        condition: service_healthy

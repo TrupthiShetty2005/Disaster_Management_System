@@ -1,0 +1,27 @@
+sequenceDiagram
+  actor User
+  participant FE as WeatherPage
+  participant API as FastAPI /api/v1
+  participant WI as WeatherIntelService
+  participant WP as Weather provider
+  participant RM as BaselineFloodRiskModel
+  participant DB as SQLAlchemy session
+
+  User->>FE: Open /weather
+  FE->>API: GET /weather/current
+  API->>WI: current()
+  WI->>WP: MockWeatherProvider or OpenWeather
+  WP-->>WI: WeatherSnapshot
+  WI-->>API: snapshot
+  API-->>FE: JSON temperature rainfall wind
+
+  FE->>API: GET /risk/flood
+  API->>WI: flood()
+  WI->>WP: current + rainfall
+  WI->>RM: evaluate(FloodRiskInput)
+  Note over RM: Weighted formula not a neural net
+  WI->>WI: overlay_demo_flood if USE_MOCK_PROVIDERS
+  WI-->>API: flood_probability factors
+  API-->>FE: JSON 82% when mock overlay on
+  FE-->>User: KPI cards and charts
+  Note over DB: Live weather path does not require reading WeatherObservation rows; seed still stores sample observations

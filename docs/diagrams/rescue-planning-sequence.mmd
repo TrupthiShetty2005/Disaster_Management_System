@@ -1,0 +1,23 @@
+sequenceDiagram
+  actor User
+  participant FE as RescuePage
+  participant API as FastAPI
+  participant RS as RescuePlanningService
+  participant PR as RescuePriorityService
+  participant REC as recommend_resources
+  participant RT as routing.shortest_path
+  participant DB as rescue_plans audit_logs
+
+  User->>FE: Generate plan
+  FE->>API: POST /rescue/plan {disaster_id?}
+  API->>RS: generate_plan()
+  RS->>PR: score factors
+  RS->>REC: if-then resource list
+  RS->>RT: demo graph path
+  RS->>DB: insert RescuePlan PENDING
+  API-->>FE: plan JSON
+  User->>FE: Accept / Modify / Reject
+  FE->>API: POST /rescue/plans/{id}/decision
+  API->>RS: decide(action, notes)
+  RS->>DB: update decision + AuditLog
+  API-->>FE: ACCEPTED MODIFIED or REJECTED

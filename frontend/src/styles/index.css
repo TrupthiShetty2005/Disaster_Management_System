@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.leaflet-container {
+  background: #0b1016;
+  font-family: inherit;
+  height: 100%;
+  width: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+@layer components {
+  .btn {
+    @apply rounded border border-line px-3 py-1.5 text-sm text-slate-200 hover:bg-white/5;
+  }
+  .btn-primary {
+    @apply rounded border border-amber-500/40 px-4 py-2 text-sm text-amber-200 hover:bg-amber-500/10 disabled:opacity-40;
+  }
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #121a24;
+  color: #e2e8f0;
+  border: 1px solid #243044;
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px;
+  font-size: 12px;
+}

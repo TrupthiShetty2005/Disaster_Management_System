@@ -1,0 +1,23 @@
+sequenceDiagram
+  actor User
+  participant FE as AlertsPage
+  participant API as FastAPI
+  participant EW as EarlyWarningService
+  participant ENG as AlertEngine
+  participant N as notifications.dispatch
+  participant DB as alerts
+  participant SSE as stream.py
+
+  User->>FE: Generate alerts
+  FE->>API: POST /alerts/generate
+  API->>EW: generate(location_id)
+  EW->>ENG: composite scores vs rules.json
+  ENG->>DB: insert Alert rows
+  EW->>N: mock dashboard; SMS/email not sent
+  EW->>SSE: publish event
+  API-->>FE: AlertList
+  User->>FE: Acknowledge
+  FE->>API: POST /alerts/{id}/acknowledge {actor}
+  API->>EW: acknowledge
+  EW->>DB: status ACKNOWLEDGED
+  API-->>FE: updated AlertOut

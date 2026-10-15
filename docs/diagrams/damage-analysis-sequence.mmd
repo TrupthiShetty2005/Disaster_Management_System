@@ -1,0 +1,19 @@
+sequenceDiagram
+  actor User
+  participant FE as DamagePage
+  participant API as FastAPI
+  participant DS as DamageAssessmentService
+  participant PR as satellite/processing compare_scenes
+  participant CL as damage/classify.py
+  participant DB as damage_reports
+
+  User->>FE: Run damage analysis
+  FE->>API: POST /damage/analyze {before_kind, after_kind}
+  API->>DS: analyze()
+  DS->>PR: generate_demo_raster x2 then compare_scenes
+  PR-->>DS: change metrics
+  DS->>CL: classify_building classify_road
+  DS->>DS: build_report JSON
+  DS->>DB: insert DamageReport
+  API-->>FE: report + overlay_geojson
+  FE-->>User: Doughnut charts and map overlay

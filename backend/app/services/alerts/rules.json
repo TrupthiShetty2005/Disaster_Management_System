@@ -1,0 +1,21 @@
+{
+  "disclaimer": "VisionGuard AI is a decision-support prototype. Alerts must be validated by authorized disaster-management personnel.",
+  "bands": {
+    "default": { "watch": 30, "warning": 50, "critical": 75 }
+  },
+  "by_type": {
+    "flood": { "watch": 30, "warning": 50, "critical": 75, "dispatch_min": 70 },
+    "rainfall": { "watch": 25, "warning": 45, "critical": 70, "dispatch_min": 45 },
+    "river": { "watch": 30, "warning": 55, "critical": 80, "dispatch_min": 55 },
+    "cyclone": { "watch": 25, "warning": 45, "critical": 70, "dispatch_min": 60 },
+    "wildfire": { "watch": 35, "warning": 55, "critical": 80, "dispatch_min": 55 },
+    "landslide": { "watch": 30, "warning": 50, "critical": 75, "dispatch_min": 50 },
+    "damage": { "watch": 20, "warning": 40, "critical": 70, "dispatch_min": 40 }
+  },
+  "actions": {
+    "INFO": "Continue monitoring. No operational surge required.",
+    "WATCH": "Brief duty officer; check pumps, boats, and shelter occupancy.",
+    "WARNING": "Activate local response cells; pre-position boats and medical teams.",
+    "CRITICAL": "Immediate operational response; validate with authorized personnel before public warning."
+  }
+}

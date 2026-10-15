@@ -1,0 +1,50 @@
+%% Data flows that exist in code (not a single automatic pipeline)
+
+flowchart TB
+  subgraph WEATHER["Weather → risk → alerts → dashboard"]
+    W1[MockWeatherProvider<br/>or optional OpenWeather]
+    W2[WeatherIntelService]
+    W3[BaselineFloodRiskModel<br/>evaluate_cyclone<br/>analyze_rainfall]
+    W4[overlay_demo_flood if mock]
+    W5[AlertEngine + rules.json]
+    W6[alerts table]
+    W7[GET /alerts /weather /risk]
+    W8[DashboardPage AlertsPage WeatherPage]
+    W1 --> W2 --> W3 --> W4 --> W5 --> W6 --> W7 --> W8
+  end
+
+  subgraph SAT["Satellite / flood / damage → GeoJSON → maps"]
+    S1[generate_demo_raster]
+    S2[OpenCV color masks]
+    S3[SatelliteService / FloodDetectionService / DamageAssessmentService]
+    S4[JSON GeoJSON in DB]
+    S5[API JSON]
+    S6[SatelliteOverlayMap / FloodPage / DamagePage]
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
+  end
+
+  subgraph GIS["Command map GIS — separate path"]
+    G1[gisMock.ts FeatureCollections]
+    G2[fetchGisCatalog always mock catalog]
+    G3[DisasterMap Leaflet layers]
+    G1 --> G2 --> G3
+  end
+
+  subgraph CV["Upload vision → detections"]
+    C1[ComputerVisionPage file]
+    C2[POST /vision/analyze]
+    C3[VisionPipeline DemoVisionModel]
+    C4[vision_jobs + annotated JPEG]
+    C5[UI boxes and severity]
+    C1 --> C2 --> C3 --> C4 --> C5
+  end
+
+  subgraph RESCUE["Rescue — rule-based; not auto-fed from YOLO"]
+    R1[POST /rescue/plan]
+    R2[RescuePlanningService<br/>priority + recommend_resources + routing]
+    R3[rescue_plans + audit_logs]
+    R4[RescuePage accept/modify/reject]
+    R1 --> R2 --> R3 --> R4
+  end
+
+  note1[Vision detections do not automatically call RescuePlanningService]

@@ -1,0 +1,34 @@
+%% Simple viva / professor overview — modules that exist
+
+flowchart TB
+  VG[VISIONGUARD AI<br/>decision-support prototype]
+
+  VG --> PREC[PRECAUTION]
+  VG --> RESP[RESPONSE]
+  VG --> REC[RECOVERY]
+
+  PREC --> W[Weather]
+  PREC --> RK[Risk prediction]
+  PREC --> AL[Alerts]
+
+  RESP --> SAT[Satellite]
+  RESP --> CV[Computer vision]
+  RESP --> FD[Flood detection]
+  RESP --> GIS[GIS maps]
+  RESP --> RP[Rescue planning]
+
+  REC --> DM[Damage assessment]
+  REC --> AN[Analytics / CSV reports]
+
+  W --> DEC[Operator reviews UI]
+  RK --> DEC
+  AL --> DEC
+  SAT --> DEC
+  CV --> DEC
+  FD --> DEC
+  GIS --> DEC
+  DM --> DEC
+  AN --> DEC
+  RP --> RA[Resource recommendation]
+  RA --> HUM[Human accept / modify / reject]
+  DEC --> HUM
