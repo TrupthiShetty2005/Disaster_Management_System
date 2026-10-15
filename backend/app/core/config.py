@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     satellite_max_pixels: int = 768
     max_upload_mb: int = 8
     yolo_model: str = "yolov8n.pt"
+    max_video_upload_mb: int = 40
+    video_max_seconds: float = 20
+    # Download + run the openly licensed benchmark gallery (vision_gallery.json) in the background.
+    vision_gallery_autobuild: bool = True
     refresh_interval_min: int = 30
 
     # Indicative loss model (INR). Exposure counts are measured; these unit costs and damage ratios

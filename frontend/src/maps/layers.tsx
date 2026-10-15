@@ -1,5 +1,6 @@
 import { CircleMarker, Popup, Tooltip } from "react-leaflet";
 import type { DisasterEvent, FireCluster, FireDetection, StationReport } from "../api/types";
+import { INDUSTRIAL_COLOR } from "../lib/fire";
 import { fmt, fmtDate, fmtDateTime, label, levelColor } from "../lib/format";
 
 export function StationMarkers({ stations, onSelect }: { stations: StationReport[]; onSelect?: (id: string) => void }) {
@@ -58,25 +59,29 @@ export function DetectionMarkers({ detections }: { detections: FireDetection[] }
   );
 }
 
-export function ClusterMarkers({ clusters, onSelect }: { clusters: FireCluster[]; onSelect?: (c: FireCluster) => void }) {
+export function ClusterMarkers({ clusters, onSelect, selectedId }: { clusters: FireCluster[]; onSelect?: (c: FireCluster) => void; selectedId?: string | null }) {
   return (
     <>
       {clusters.map((c) => (
         <CircleMarker
           key={c.id}
           center={[c.latitude, c.longitude]}
-          radius={Math.min(18, 6 + Math.sqrt(c.detections) * 1.5)}
-          pathOptions={
-            c.persistent_heat_source
-              ? { color: "#94a3b8", weight: 2, dashArray: "3 3", fillColor: "#475569", fillOpacity: 0.4 }
-              : { color: levelColor(c.severity), weight: 2, fillColor: levelColor(c.severity), fillOpacity: 0.35 }
-          }
+          radius={Math.min(18, (c.persistent_heat_source ? 8 : 6) + Math.sqrt(c.detections) * 1.5)}
+          pathOptions={{
+            ...(c.persistent_heat_source
+              ? { color: INDUSTRIAL_COLOR, weight: 2.5, fillColor: INDUSTRIAL_COLOR, fillOpacity: 0.5 }
+              : { color: levelColor(c.severity), weight: 2, fillColor: levelColor(c.severity), fillOpacity: 0.35 }),
+            ...(c.id === selectedId ? { color: "#fde047", weight: 4 } : {}),
+          }}
           eventHandlers={onSelect ? { click: () => onSelect(c) } : undefined}
         >
           <Tooltip>
             <strong>{c.classification}</strong> — {c.district}
             <br />
             {c.detections} detections over {c.days_seen} day(s) · {fmt(c.total_frp_mw)} MW total
+            <br />
+            Last seen {fmtDateTime(c.last_seen)}
+            {onSelect ? " · click for details" : ""}
           </Tooltip>
         </CircleMarker>
       ))}

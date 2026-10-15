@@ -17,6 +17,20 @@ A disaster-monitoring console for **Karnataka, India**, built only on live publi
 
 Only OpenWeather needs an API key. Every other source is free and keyless.
 
+## Run with Docker
+
+From a fresh clone, with Docker Desktop or Docker Engine and Compose v2:
+
+```bash
+docker compose up --build
+```
+
+Then open the app at [http://localhost:5173](http://localhost:5173). The API is at [http://localhost:8000](http://localhost:8000) (docs at [http://localhost:8000/docs](http://localhost:8000/docs)).
+
+The OpenWeather key is already in `backend/.env`. Anyone who can read this repository can see that key. The image also includes the SQLite database, satellite analysis images, the vision gallery photos and videos, and the YOLOv8n weights, so existing analyses and the gallery are there on first start. New analyses are written to the `visionguard_data` volume. `docker compose down -v` drops that volume; the next start copies the baked-in data again.
+
+Reference downloads (district boundaries, facilities, river thresholds) are cached under `storage/cache` and are not in git. The first start rebuilds that cache from the live sources.
+
 ## Run locally
 
 Backend (Python 3.11):
@@ -25,7 +39,7 @@ Backend (Python 3.11):
 cd backend
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp ../.env.example .env        # add your OPENWEATHER_API_KEY
+# backend/.env is already in the repo (OpenWeather key included)
 uvicorn app.main:app --port 8000
 ```
 
@@ -37,8 +51,6 @@ npm install
 echo "VITE_API_BASE_URL=http://127.0.0.1:8000" > .env
 npm run dev                    # http://localhost:5173
 ```
-
-Or with Docker: `docker compose up --build` after creating `backend/.env`.
 
 On first start the backend downloads reference data in the background and caches it on disk under `backend/storage/cache`:
 

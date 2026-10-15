@@ -1,0 +1,17 @@
+.git
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/.DS_Store
+frontend/dist
+backend/storage/cache
+backend/visionguard.db-wal
+backend/visionguard.db-shm
+backend/**/*.db-wal
+backend/**/*.db-shm
+backend/storage/**/*.db
+backend/storage/**/.build.lock
+**/*.pem
+sk-live-*.json

@@ -33,6 +33,10 @@ def _background() -> None:
             water.thresholds(st.id)
         except SourceUnavailable as exc:
             log.warning("thresholds %s failed: %s", st.id, exc.message)
+    if settings.vision_gallery_autobuild:
+        from app.services import vision_gallery
+
+        vision_gallery.start_build()
     while not _stop.is_set():
         db = SessionLocal()
         try:

@@ -20,6 +20,13 @@ FEEDS = {
     "MODIS": "modis-c6.1/csv/MODIS_C6_1_South_Asia_{w}.csv",
 }
 AREA_SOURCES = {"VIIRS_SNPP": "VIIRS_SNPP_NRT", "VIIRS_NOAA20": "VIIRS_NOAA20_NRT", "VIIRS_NOAA21": "VIIRS_NOAA21_NRT", "MODIS": "MODIS_NRT"}
+WINDOW_DAYS = {"24h": 1, "48h": 2, "7d": 7, "10d": 10}
+# Public regional CSVs stop at 7 days; the area API (MAP_KEY) serves up to 10 days of NRT data.
+PUBLIC_WINDOWS = ("24h", "48h", "7d")
+
+
+def available_windows() -> tuple[str, ...]:
+    return (*PUBLIC_WINDOWS, "10d") if settings.firms_map_key else PUBLIC_WINDOWS
 
 
 def _confidence(sensor: str, raw: str) -> str:
@@ -63,14 +70,16 @@ def _parse(sensor: str, text: str) -> list[dict[str, Any]]:
 
 @http.ttl_cache(900)
 def detections(window: str = "7d") -> dict[str, Any]:
-    """All detections in the Karnataka bounding box for the window ("24h", "48h", "7d")."""
+    """All detections in the Karnataka bounding box for the window ("24h", "48h", "7d"; "10d" needs a MAP_KEY)."""
+    if window not in available_windows():
+        raise SourceUnavailable("nasa-firms", f"The {window} window needs a FIRMS MAP_KEY (public feeds cover 7 days); FIRMS_MAP_KEY is not configured")
     rows: list[dict[str, Any]] = []
     feeds_ok: dict[str, int] = {}
     errors: dict[str, str] = {}
     for sensor, path in FEEDS.items():
         try:
             if settings.firms_map_key:
-                days = {"24h": 1, "48h": 2, "7d": 7}[window]
+                days = WINDOW_DAYS[window]
                 w, s, e, n = KARNATAKA_BBOX
                 url = f"{BASE}/api/area/csv/{settings.firms_map_key}/{AREA_SOURCES[sensor]}/{w},{s},{e},{n}/{days}"
             else:

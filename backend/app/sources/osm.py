@@ -61,6 +61,25 @@ def infrastructure(bbox: tuple[float, ...]) -> list[dict[str, Any]]:
     return overpass(q)
 
 
+BUILDING_ID_CHUNK = 1500
+
+
+@http.ttl_cache(3 * 86400, disk=True)
+def _building_chunk(ids: tuple[int, ...]) -> list[dict[str, Any]]:
+    q = f"[out:json][timeout:110];way(id:{','.join(str(i) for i in ids)});out geom qt;"
+    return [{"id": el["id"], "geometry": el.get("geometry") or []} for el in overpass(q) if el.get("type") == "way"]
+
+
+def building_geometries(way_ids: list[int]) -> dict[int, list[dict[str, float]]]:
+    """Full footprint outlines (lat/lon rings) for specific building ways, fetched by id in chunks."""
+    ids = sorted(set(way_ids))
+    out: dict[int, list[dict[str, float]]] = {}
+    for i in range(0, len(ids), BUILDING_ID_CHUNK):
+        for el in _building_chunk(tuple(ids[i : i + BUILDING_ID_CHUNK])):
+            out[el["id"]] = el["geometry"]
+    return out
+
+
 @http.ttl_cache(7 * 86400, disk=True)
 def emergency_facilities() -> list[dict[str, Any]]:
     """Every mapped hospital, fire station and police station in and around Karnataka (one statewide query)."""

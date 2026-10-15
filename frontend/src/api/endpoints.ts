@@ -2,6 +2,7 @@ import { apiGet, apiPost, apiUpload } from "./client";
 import type {
   Alert,
   Analysis,
+  AnalysisAssets,
   Analytics,
   DangerDistrict,
   DetectionsResponse,
@@ -9,6 +10,7 @@ import type {
   District,
   FireCluster,
   Impact,
+  IndustrialSitesResponse,
   Overview,
   RainResponse,
   RescuePlan,
@@ -16,6 +18,8 @@ import type {
   SourceStatus,
   Station,
   StationReport,
+  VisionGallery,
+  VisionGalleryBuild,
   VisionJob,
   Weather,
 } from "./types";
@@ -38,6 +42,7 @@ export const getWeather = (districtId: string) => apiGet<Weather>(`/weather/${di
 export const getFireDetections = (window: FireWindow) => apiGet<DetectionsResponse>(`/fire/detections?window=${window}`);
 export const getFireClusters = (window: FireWindow = "7d") =>
   apiGet<{ items: FireCluster[]; cluster_km: number }>(`/fire/clusters?window=${window}`);
+export const getFireIndustrialSites = () => apiGet<IndustrialSitesResponse>("/fire/industrial-sites");
 export const getFireDanger = () => apiGet<{ items: DangerDistrict[]; method: string }>("/fire/danger");
 export const getFireClusterImpact = (clusterId: string, radiusM = 500) =>
   apiPost<{ cluster: FireCluster; impact: Impact }>("/impact/fire-cluster", { cluster_id: clusterId, radius_m: radiusM });
@@ -61,6 +66,7 @@ export interface AnalyzeRequest {
 export const runAnalysis = (body: AnalyzeRequest) => apiPost<Analysis>("/satellite/analyze", body);
 export const getAnalyses = () => apiGet<Items<Analysis>>("/analyses");
 export const getAnalysis = (id: string) => apiGet<Analysis>(`/analyses/${id}`);
+export const getAnalysisAssets = (id: string) => apiGet<AnalysisAssets>(`/analyses/${id}/assets`);
 
 export const getAlerts = (status = "open") => apiGet<{ items: Alert[]; total: number }>(`/alerts?status=${status}`);
 export const refreshAlerts = () => apiPost<{ created: number; updated: number; resolved: number; expired: number; errors: Record<string, string> }>("/alerts/refresh");
@@ -74,5 +80,8 @@ export const getVisionStatus = () =>
   apiGet<{ available: boolean; model: string; framework: string; classes: string; loaded: boolean; detail?: string }>("/vision/status");
 export const detectImage = (file: File) => apiUpload<VisionJob>("/vision/detect", file);
 export const getVisionJobs = () => apiGet<Items<VisionJob>>("/vision/jobs");
+export const detectVideo = (file: File) => apiUpload<VisionJob>("/vision/detect-video", file);
+export const getVisionGallery = () => apiGet<VisionGallery>("/vision/gallery");
+export const rebuildVisionGallery = (force = false) => apiPost<VisionGalleryBuild>(`/vision/gallery/rebuild?force=${force}`);
 
 export const getSources = () => apiGet<Items<SourceStatus>>("/sources");

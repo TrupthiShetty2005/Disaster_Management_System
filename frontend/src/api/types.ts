@@ -137,6 +137,56 @@ export interface FireCluster {
   severity: Severity;
   score: number;
   points: [number, number][];
+  nearest_site?: { id: string; name: string; distance_km: number } | null;
+  members?: FireDetectionRecord[];
+}
+
+export interface FireDetectionRecord {
+  latitude: number;
+  longitude: number;
+  acquired_at: string;
+  sensor: string;
+  satellite?: string | null;
+  confidence: string;
+  frp_mw: number | null;
+  daynight?: string | null;
+}
+
+export interface SiteDetection extends FireDetectionRecord {
+  distance_km: number;
+  nearest_facility: string;
+}
+
+export interface MonitoredSite {
+  id: string;
+  name: string;
+  kind: string;
+  district_id: string;
+  district: string;
+  latitude: number;
+  longitude: number;
+  radius_km: number;
+  facilities: { name: string; latitude: number; longitude: number }[];
+  status: "DETECTED_24H" | "DETECTED" | "NO_DETECTION";
+  counts: Record<string, number>;
+  last_detection: string | null;
+  days_with_detections: number;
+  total_frp_mw: number;
+  max_frp_mw: number;
+  history: SiteDetection[];
+  nearest_detection: SiteDetection | null;
+  cloud_at_passes: { mean_pct: number | null; days: { date: string; night_pct: number | null; day_pct: number | null }[] } | null;
+  summary: string;
+}
+
+export interface IndustrialSitesResponse {
+  items: MonitoredSite[];
+  coverage: { window: string; from: string | null; to: string | null };
+  feeds: Record<string, number>;
+  unavailable_windows: Record<string, string>;
+  archive: { map_key_configured: boolean; windows: string[]; max_days: number; note: string };
+  limitations: string;
+  sources: string;
 }
 
 export interface DangerDay {
@@ -233,6 +283,69 @@ export interface Impact {
   };
   source?: string;
   detail?: string;
+}
+
+export type DamageClass = "newly_flooded" | "burned" | "edge_contact" | "persistent_water" | "none";
+
+export interface BuildingAsset {
+  osm_id: string;
+  name: string | null;
+  building: string | null;
+  height_m: number;
+  height_source: "osm_height" | "osm_levels" | "estimated_default";
+  levels: number | null;
+  affected: boolean;
+  damage_class: DamageClass;
+  overlap_pct: number;
+  footprint_m2: number;
+}
+
+export interface LineAsset {
+  osm_id: string;
+  kind: "road" | "railway" | "power_line";
+  class: string;
+  name: string | null;
+  major: boolean;
+  voltage?: string;
+  affected: boolean;
+  damage_class: DamageClass;
+  length_km: number;
+}
+
+export interface FacilityAsset {
+  osm_id: string;
+  kind: string;
+  name: string;
+  affected: boolean;
+  damage_class: DamageClass;
+}
+
+export interface AnalysisAssets {
+  analysis_id: string;
+  status: "complete" | "no_hazard_footprint" | "osm_unavailable";
+  detail?: string;
+  hazard_type?: string;
+  generated_at?: string;
+  center?: [number, number];
+  search_bbox?: BBox;
+  buildings?: GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon, BuildingAsset>;
+  lines?: GeoJSON.FeatureCollection<GeoJSON.LineString, LineAsset>;
+  facilities?: GeoJSON.FeatureCollection<GeoJSON.Point, FacilityAsset>;
+  summary?: {
+    buildings_affected: number;
+    buildings_nearby_unaffected: number;
+    buildings_edge_contact: number;
+    buildings_returned: number;
+    buildings_without_outline: number;
+    height_sources: Record<string, number>;
+    road_km_affected: number;
+    railway_km_affected: number;
+    power_line_km_affected: number;
+    facilities_affected: number;
+  };
+  limits?: { max_affected_buildings: number; max_context_buildings: number; context_radius_m: number; truncated: boolean };
+  method?: { affected_rule: string; damage_classes: Record<string, string>; height: string; flood_depth: string | null };
+  source?: string;
 }
 
 export interface Scene {
@@ -335,15 +448,107 @@ export interface VisionDetection {
   bbox: [number, number, number, number];
 }
 
+export interface VisionSummary {
+  by_label: Record<string, number>;
+  groups: Record<string, number>;
+  total: number;
+}
+
 export interface VisionJob {
   id: string;
+  kind?: "image" | "video";
   filename: string;
   model: string;
   detections: VisionDetection[];
-  summary: { by_label: Record<string, number>; groups: Record<string, number>; total: number };
+  summary: VisionSummary & Partial<VisionVideoResult>;
   processing_ms: number;
-  image_url: string;
+  image_url: string | null;
+  video_url?: string;
   created_at: string;
+}
+
+export interface VisionTimelinePoint {
+  t: number;
+  people: number;
+  vehicles: number;
+  boats: number;
+  animals: number;
+  total: number;
+}
+
+export interface VisionVideoResult {
+  codec: string;
+  browser_playable: boolean;
+  source: { fps: number; frames: number; width: number; height: number; duration_s: number | null };
+  processed: { stride: number; fps: number; width: number; height: number; seconds: number; conf: number; tracker: string; min_track_frames?: number };
+  frames_processed: number;
+  timeline: VisionTimelinePoint[];
+  peak: Record<string, number>;
+  unique: Record<string, number>;
+  unique_by_label: Record<string, number>;
+  unique_total: number;
+  detections_by_label: Record<string, number>;
+  avg_ms: number | null;
+  fps: number | null;
+  wall_s?: number;
+}
+
+export interface VisionImageResult {
+  width: number;
+  height: number;
+  detections: VisionDetection[];
+  summary: VisionSummary;
+  processing_ms: number;
+  conf: number;
+  render_conf: number;
+}
+
+export interface VisionGalleryItem {
+  id: string;
+  kind: "image" | "video";
+  title: string;
+  description: string;
+  location: string;
+  year: number | null;
+  source_url: string;
+  author: string;
+  licence: string;
+  licence_url: string;
+  result: VisionImageResult | VisionVideoResult | null;
+  error: string | null;
+  original_url?: string;
+  annotated_url?: string;
+}
+
+export interface VisionGalleryBuild {
+  status: "idle" | "running" | "ready" | "error";
+  done: number;
+  total: number;
+  current: string | null;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface VisionGallery {
+  build: VisionGalleryBuild;
+  built_at: string | null;
+  model: { name: string; dataset: string; device: string; machine: string; video_codec: string };
+  stats: {
+    images: number;
+    videos: number;
+    video_frames: number;
+    video_seconds: number;
+    objects: number;
+    by_label: Record<string, number>;
+    groups: Record<string, number>;
+    image_avg_ms: number | null;
+    image_max_ms: number | null;
+    video_avg_ms: number | null;
+    video_fps: number | null;
+    render_conf: number;
+  };
+  items: VisionGalleryItem[];
 }
 
 export interface SourceStatus {

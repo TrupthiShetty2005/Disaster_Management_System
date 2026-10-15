@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { GeoJSON, ImageOverlay, Rectangle } from "react-leaflet";
 import { useSearchParams } from "react-router-dom";
 import { apiUrl, assetUrl } from "../api/client";
@@ -9,6 +9,8 @@ import { Async, Card, Empty, ErrorBox, Kpi, Loading, PageHeader, Source } from "
 import { useAsync } from "../hooks/useAsync";
 import { fmt, fmtDate, fmtDateTime } from "../lib/format";
 import { KarnatakaMap } from "../maps/KarnatakaMap";
+
+const DamageView3D = lazy(() => import("../maps/DamageView3D"));
 
 type Mode = "flood-sar" | "flood-optical" | "burn";
 const MODES: { id: Mode; label: string; hint: string }[] = [
@@ -80,9 +82,23 @@ export function AnalysisResult({ a }: { a: Analysis }) {
   const severity = (a.metrics.severity_km2 ?? {}) as Record<string, number>;
   const bounds = toBounds(a.image_bounds ?? a.bbox);
   const flood = a.kind === "flood";
+  const [params] = useSearchParams();
+  const [view, setView] = useState<"2d" | "3d">(params.get("view") === "3d" ? "3d" : "2d");
+  const viewToggle = (
+    <div className="flex items-center gap-2">
+      <div className="flex overflow-hidden rounded border border-line text-xs" role="group" aria-label="Map view">
+        {(["2d", "3d"] as const).map((v) => (
+          <button key={v} className={`px-2 py-1 ${view === v ? "bg-amber-500/20 text-amber-200" : "text-slate-400 hover:bg-white/5"}`} aria-pressed={view === v} onClick={() => setView(v)}>
+            {v === "2d" ? "2D map" : "3D damage view"}
+          </button>
+        ))}
+      </div>
+      <span className="text-xs text-slate-500">{fmtDateTime(a.created_at)}</span>
+    </div>
+  );
   return (
     <div className="space-y-3">
-      <Card title={`${flood ? "Flood mapping" : "Burn-scar mapping"} · ${a.area_name}`} actions={<span className="text-xs text-slate-500">{fmtDateTime(a.created_at)}</span>}>
+      <Card title={`${flood ? "Flood mapping" : "Burn-scar mapping"} · ${a.area_name}`} actions={viewToggle}>
         <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {flood ? (
             <>
@@ -100,19 +116,28 @@ export function AnalysisResult({ a }: { a: Analysis }) {
             </>
           )}
         </div>
-        <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
-          <KarnatakaMap height={420} bounds={bounds} imagery>
-            {a.images["change.png"] ? <ImageOverlay url={assetUrl(a.images["change.png"])} bounds={bounds} opacity={0.75} /> : null}
-            {a.geojson ? (
-              <GeoJSON
-                key={a.id}
-                data={a.geojson}
-                style={(f) => ({ color: CLASS_STYLE[String(f?.properties?.class)]?.color ?? "#facc15", weight: 1, fillOpacity: 0.15 })}
-              />
-            ) : null}
-            <Rectangle bounds={bounds} pathOptions={{ color: "#f59e0b", weight: 1, fill: false, dashArray: "4 4" }} />
-          </KarnatakaMap>
-          <div className="grid grid-cols-2 gap-2">
+        {view === "3d" ? (
+          <div className="mb-3">
+            <Suspense fallback={<Loading text="Loading 3D map engine…" />}>
+              <DamageView3D a={a} />
+            </Suspense>
+          </div>
+        ) : null}
+        <div className={view === "3d" ? "grid gap-3" : "grid gap-3 lg:grid-cols-[1fr_1fr]"}>
+          {view === "2d" ? (
+            <KarnatakaMap height={420} bounds={bounds} imagery>
+              {a.images["change.png"] ? <ImageOverlay url={assetUrl(a.images["change.png"])} bounds={bounds} opacity={0.75} /> : null}
+              {a.geojson ? (
+                <GeoJSON
+                  key={a.id}
+                  data={a.geojson}
+                  style={(f) => ({ color: CLASS_STYLE[String(f?.properties?.class)]?.color ?? "#facc15", weight: 1, fillOpacity: 0.15 })}
+                />
+              ) : null}
+              <Rectangle bounds={bounds} pathOptions={{ color: "#f59e0b", weight: 1, fill: false, dashArray: "4 4" }} />
+            </KarnatakaMap>
+          ) : null}
+          <div className={view === "3d" ? "grid grid-cols-2 gap-2 md:grid-cols-3" : "grid grid-cols-2 gap-2"}>
             {(["before.png", "after.png"] as const).map((name) =>
               a.images[name] ? (
                 <figure key={name}>
@@ -124,7 +149,7 @@ export function AnalysisResult({ a }: { a: Analysis }) {
               ) : null,
             )}
             {a.images["change.png"] ? (
-              <figure className="col-span-2">
+              <figure className={view === "3d" ? "col-span-2 md:col-span-1" : "col-span-2"}>
                 <img src={assetUrl(a.images["change.png"])} alt="change map" className="w-full rounded border border-line bg-black" />
                 <figcaption className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-400">
                   {Object.entries(CLASS_STYLE)

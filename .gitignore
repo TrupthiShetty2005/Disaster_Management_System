@@ -3,6 +3,9 @@ venv/
 .env
 .env.live
 .env.*.local
+# Committed so a teammate can `docker compose up` without creating secrets or media.
+!backend/.env
+!frontend/.env
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -13,6 +16,13 @@ frontend/dist/
 *.db
 *.db-shm
 *.db-wal
-storage/
+!backend/visionguard.db
+# Regenerable HTTP caches (hundreds of MB of JSON). Images, videos, analysis
+# rasters, and model weights under backend/storage are committed.
+backend/storage/cache/
+backend/storage/**/*.db
+backend/storage/**/.build.lock
+backend/storage/**/*.part
+backend/storage/**/*.tmp
 sk-live-*.json
 *.pem

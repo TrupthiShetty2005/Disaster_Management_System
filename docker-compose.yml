@@ -1,3 +1,6 @@
+# Teammate default: backend http://localhost:8000 , app http://localhost:5173
+# If a port is taken locally, override only the host side:
+#   BACKEND_PUBLISH_PORT=18080 FRONTEND_PUBLISH_PORT=15173 docker compose up --build
 services:
   backend:
     build:
@@ -10,27 +13,29 @@ services:
       STORAGE_DIR: /data/storage
       CACHE_DIR: /data/storage/cache
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      YOLO_MODEL: yolov8n.pt
     volumes:
-      - vg_data:/data
+      - visionguard_data:/data
     ports:
-      - "8000:8000"
+      - "${BACKEND_PUBLISH_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)"]
-      interval: 30s
+      interval: 15s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 8
+      start_period: 40s
 
   frontend:
     build:
       context: ./frontend
       dockerfile: ../docker/frontend.Dockerfile
     environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: http://127.0.0.1:${BACKEND_PUBLISH_PORT:-8000}
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PUBLISH_PORT:-5173}:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
-  vg_data:
+  visionguard_data:

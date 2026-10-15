@@ -10,3 +10,4 @@ python-multipart==0.0.32
 rasterio==1.4.4
 shapely==2.2.0
 ultralytics==8.4.177
+lap==0.5.13

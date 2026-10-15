@@ -14,11 +14,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import SourceUnavailable
-from app.db import Alert, Analysis, VisionJob, get_db
+from app.db import Alert, Analysis, VisionJob, get_db, new_id
 from app.geo import karnataka
 from app.services import alerts as alert_svc
 from app.services import analytics as analytics_svc
-from app.services import events, fire, impact, rainfall, rescue, satellite, sources_status, vision, water
+from app.services import events, fire, impact, rainfall, rescue, satellite, sources_status, vision, vision_gallery, water
 from app.services import overview as overview_svc
 from app.sources import openmeteo, openweather
 
@@ -108,6 +108,11 @@ def fire_detections(window: Window = "24h"):
 @router.get("/fire/clusters")
 def fire_clusters(window: Window = "7d"):
     return {"items": fire.clusters(window), "cluster_km": fire.CLUSTER_KM}
+
+
+@router.get("/fire/industrial-sites")
+def fire_industrial_sites():
+    return fire.monitored_sites()
 
 
 @router.get("/fire/danger")
@@ -227,6 +232,26 @@ def analysis_image(analysis_id: str, name: Literal["before.png", "after.png", "c
     return FileResponse(path, media_type="image/png")
 
 
+@router.get("/analyses/{analysis_id}/assets")
+def analysis_assets(analysis_id: str, refresh: bool = False, db: Session = Depends(get_db)):
+    """Per-asset GeoJSON (building footprints with heights, clipped lines, facilities) for the 3D view.
+    Computed on first request from the stored hazard polygons, then kept beside the analysis images."""
+    a = db.get(Analysis, analysis_id)
+    if not a:
+        raise HTTPException(404, "Analysis not found")
+    path = Path(settings.storage_dir) / "analyses" / a.id / "assets.json"
+    if path.is_file() and not refresh:
+        return FileResponse(path, media_type="application/json")
+    fc = a.geojson or {}
+    hazard = impact.hazard_from_geojson(fc, impact.HAZARD_CLASSES.get(a.kind, []))
+    water = impact.hazard_from_geojson(fc, ["persistent_water"]) if a.kind == "flood" else None
+    out = {"analysis_id": a.id, **impact.assets(hazard, "flood" if a.kind == "flood" else "fire", water)}
+    if out["status"] == "complete":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, separators=(",", ":")))
+    return out
+
+
 class FireImpactRequest(BaseModel):
     cluster_id: str
     radius_m: float = Field(500, ge=100, le=3000)
@@ -330,7 +355,10 @@ def vision_status():
 
 
 def _vision_out(job: VisionJob) -> dict[str, Any]:
-    return {"id": job.id, "filename": job.filename, "model": job.model_name, "detections": job.detections, "summary": job.summary, "processing_ms": job.processing_ms, "image_url": f"/api/v1/vision/jobs/{job.id}/image", "created_at": job.created_at}
+    out = {"id": job.id, "kind": "image", "filename": job.filename, "model": job.model_name, "detections": job.detections, "summary": job.summary, "processing_ms": job.processing_ms, "image_url": f"/api/v1/vision/jobs/{job.id}/image", "created_at": job.created_at}
+    if (job.summary or {}).get("kind") == "video":
+        out.update(kind="video", image_url=None, video_url=f"/api/v1/vision/jobs/{job.id}/video")
+    return out
 
 
 @router.post("/vision/detect")
@@ -355,16 +383,84 @@ def vision_detect(file: UploadFile = File(...), db: Session = Depends(get_db)):
     return _vision_out(job)
 
 
+def _stored_media(path: str) -> Path | None:
+    """Resolve a saved vision file. The database may hold another machine's absolute path."""
+    candidate = Path(path)
+    if candidate.is_file():
+        return candidate
+    fallback = Path(settings.storage_dir) / "vision" / candidate.name
+    return fallback if fallback.is_file() else None
+
+
 @router.get("/vision/jobs/{job_id}/image")
 def vision_image(job_id: str, db: Session = Depends(get_db)):
     job = db.get(VisionJob, job_id)
-    if not job or not Path(job.annotated_path).is_file():
+    path = _stored_media(job.annotated_path) if job and job.annotated_path else None
+    if path is None:
         raise HTTPException(404, "Image not found")
-    return FileResponse(job.annotated_path, media_type="image/jpeg")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @router.get("/vision/jobs")
 def vision_jobs(db: Session = Depends(get_db)):
     rows = db.scalars(select(VisionJob).order_by(VisionJob.created_at.desc()).limit(20)).all()
     return {"items": [_vision_out(j) for j in rows]}
+
+
+VIDEO_MEDIA = {".mp4": "video/mp4", ".webm": "video/webm"}
+
+
+@router.post("/vision/detect-video")
+def vision_detect_video(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in vision.VIDEO_ALLOWED:
+        raise HTTPException(400, "Unsupported video type")
+    limit = settings.max_video_upload_mb * 1024 * 1024
+    data = file.file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, f"File exceeds {settings.max_video_upload_mb} MB")
+    job_id = new_id()
+    folder = Path(settings.storage_dir) / "vision"
+    upload = folder / "uploads" / f"{job_id}{ext}"
+    upload.parent.mkdir(parents=True, exist_ok=True)
+    upload.write_bytes(data)
+    try:
+        result = vision.process_video(upload, folder / job_id, max_seconds=settings.video_max_seconds)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        upload.unlink(missing_ok=True)
+    path = result.pop("path")
+    job = VisionJob(id=job_id, filename=Path(file.filename or "upload").name[:200], model_name=settings.yolo_model, detections=[], summary={"kind": "video", **result}, annotated_path=path, processing_ms=result["avg_ms"] or 0)
+    db.add(job)
+    db.commit()
+    return _vision_out(job)
+
+
+@router.get("/vision/jobs/{job_id}/video")
+def vision_video(job_id: str, db: Session = Depends(get_db)):
+    job = db.get(VisionJob, job_id)
+    path = _stored_media(job.annotated_path) if job and job.annotated_path else None
+    if path is None or path.suffix not in VIDEO_MEDIA:
+        raise HTTPException(404, "Video not found")
+    return FileResponse(path, media_type=VIDEO_MEDIA[path.suffix])
+
+
+@router.get("/vision/gallery")
+def vision_gallery_list():
+    return vision_gallery.gallery()
+
+
+@router.post("/vision/gallery/rebuild")
+def vision_gallery_rebuild(force: bool = False):
+    return vision_gallery.start_build(force=force)
+
+
+@router.get("/vision/gallery/{item_id}/{name}")
+def vision_gallery_media(item_id: str, name: str):
+    path = vision_gallery.media_path(item_id, name)
+    if not path:
+        raise HTTPException(404, "Media not found")
+    media = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", **VIDEO_MEDIA}.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "public, max-age=86400"})
 
