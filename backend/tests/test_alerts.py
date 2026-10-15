@@ -1,85 +1,87 @@
-from app.services.alerts.engine import AlertEngine, AlertSignals
-from app.services.alerts.notifications import (
-    DashboardNotificationProvider,
-    EmailNotificationProvider,
-    SMSNotificationProvider,
-    dispatch,
-)
-from app.services.alerts.rules import score_to_severity
-from app.services.alerts.stream import publish, recent
+from datetime import timedelta
+
+from sqlalchemy import select
+
+from app.core.errors import SourceUnavailable
+from app.db import Alert, utcnow
+from app.services import alerts
 
 
-class _FakeAlert:
-    id = "x"
-    title = "t"
-    message = "m"
-    severity = "WATCH"
+def _cond(key, severity="WATCH", hazard="flood"):
+    now = utcnow()
+    return {
+        "key": key,
+        "hazard": hazard,
+        "severity": severity,
+        "title": f"{key} {severity}",
+        "message": "test condition",
+        "district": "Vijayapura",
+        "latitude": 16.33,
+        "longitude": 75.89,
+        "source": "GloFAS",
+        "source_url": None,
+        "observed_value": 7000.0,
+        "threshold": 6200.0,
+        "unit": "m³/s",
+        "valid_from": now,
+        "valid_until": now + timedelta(days=2),
+        "payload": {},
+    }
 
 
-def test_thresholds_from_rules():
-    assert score_to_severity(10, "flood") == "INFO"
-    assert score_to_severity(35, "flood") == "WATCH"
-    assert score_to_severity(60, "flood") == "WARNING"
-    assert score_to_severity(80, "flood") == "CRITICAL"
-    assert score_to_severity(50, "cyclone") == "WARNING"
-    assert score_to_severity(50, "cyclone") != score_to_severity(50, "wildfire")
+def _families(monkeypatch, water=None, fire=None):
+    def make(v):
+        def fn():
+            if isinstance(v, Exception):
+                raise v
+            return v or []
+
+        return fn
+
+    monkeypatch.setattr(alerts, "FAMILIES", {"water": make(water), "fire": make(fire)})
+    monkeypatch.setattr(alerts, "_record_observations", lambda db: None)
 
 
-def test_composite_score_null_gauges():
-    from app.services.alerts.engine import composite_score
+def test_lifecycle_create_escalate_resolve(db, monkeypatch):
+    _families(monkeypatch, water=[_cond("water:almatti")])
+    assert alerts.refresh(db)["created"] == 1
 
-    scores = composite_score(
-        AlertSignals(flood_probability=0.6, rainfall=None, river_level=None, cyclone_probability=None)  # type: ignore[arg-type]
-    )
-    assert scores["rainfall"] == 0
-    assert scores["river"] == 0
-    assert scores["cyclone"] == 0
-    assert scores["flood"] == 0.6
-    ev = AlertEngine().evaluate(
-        AlertSignals(flood_probability=0.6, rainfall=None, river_level=None, cyclone_probability=None)  # type: ignore[arg-type]
-    )
-    assert "scores" in ev
+    _families(monkeypatch, water=[_cond("water:almatti", "WARNING")])
+    s = alerts.refresh(db)
+    assert s["created"] == 0 and s["updated"] == 1
+    row = db.scalars(select(Alert)).one()
+    assert row.severity == "WARNING" and row.status == "ACTIVE"
 
-
-def test_engine_evaluation():
-    ev = AlertEngine().evaluate(
-        AlertSignals(flood_probability=82, rainfall=50, river_level=2.4, cyclone_probability=20)
-    )
-    assert ev["overall_severity"] in {"WATCH", "WARNING", "CRITICAL"}
-    assert "decision-support prototype" in ev["disclaimer"]
+    _families(monkeypatch, water=[])
+    assert alerts.refresh(db)["resolved"] == 1
+    assert db.scalars(select(Alert)).one().status == "RESOLVED"
 
 
-def test_notification_adapters_are_mock():
-    receipts = dispatch(_FakeAlert(), [DashboardNotificationProvider(), EmailNotificationProvider(), SMSNotificationProvider()])
-    assert receipts[0]["delivered"] is True
-    assert receipts[1]["mode"] == "mock"
-    assert receipts[2]["mode"] == "mock"
+def test_failed_source_does_not_resolve_its_alerts(db, monkeypatch):
+    _families(monkeypatch, fire=[_cond("fire:15.55:76.75", hazard="fire")])
+    alerts.refresh(db)
+    _families(monkeypatch, fire=SourceUnavailable("firms", "timeout"))
+    s = alerts.refresh(db)
+    assert s["resolved"] == 0 and "fire" in s["errors"]
+    assert db.scalars(select(Alert)).one().status == "ACTIVE"
 
 
-def test_stream_publish():
-    publish({"type": "test.event", "id": "1"})
-    assert any(e.get("type") == "test.event" for e in recent())
+def test_operator_resolution_holds_until_escalation(db, monkeypatch):
+    _families(monkeypatch, water=[_cond("water:krs")])
+    alerts.refresh(db)
+    row = db.scalars(select(Alert)).one()
+    alerts.set_status(db, row.id, "RESOLVED", "operator")
+
+    s = alerts.refresh(db)
+    assert s["suppressed"] == 1 and s["created"] == 0
+
+    _families(monkeypatch, water=[_cond("water:krs", "SEVERE")])
+    assert alerts.refresh(db)["created"] == 1
 
 
-def test_alert_api_generate_ack_filter(client):
-    gen = client.post("/api/v1/alerts/generate", json={})
-    assert gen.status_code == 200
-    assert gen.json()["total"] >= 1
-    item = gen.json()["items"][0]
-    assert item["disclaimer"]
-    aid = item["id"]
-    one = client.get(f"/api/v1/alerts/{aid}")
-    assert one.status_code == 200
-    ack = client.post(f"/api/v1/alerts/{aid}/acknowledge", json={"actor": "tester"})
-    assert ack.status_code == 200
-    assert ack.json()["status"] == "ACKNOWLEDGED"
-    assert ack.json()["acknowledged_by"] == "tester"
-    resolved = client.post(f"/api/v1/alerts/{aid}/resolve", json={"actor": "tester"})
-    assert resolved.json()["status"] == "RESOLVED"
-    listed = client.get("/api/v1/alerts", params={"status": "RESOLVED"})
-    assert listed.status_code == 200
-    assert any(a["id"] == aid for a in listed.json()["items"])
-    filtered = client.get("/api/v1/alerts", params={"severity": "CRITICAL"})
-    assert filtered.status_code == 200
-    events = client.get("/api/v1/alerts/events")
-    assert events.status_code == 200
+def test_expired_alerts_close(db, monkeypatch):
+    c = _cond("water:kabini")
+    c["valid_until"] = utcnow() - timedelta(minutes=1)
+    _families(monkeypatch, water=[c])
+    s = alerts.refresh(db)
+    assert s["expired"] == 1

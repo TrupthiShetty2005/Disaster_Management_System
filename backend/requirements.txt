@@ -3,12 +3,10 @@ uvicorn==0.51.0
 pydantic==2.13.4
 pydantic-settings==2.10.1
 SQLAlchemy==2.0.51
-psycopg2-binary==2.9.10
-python-dotenv==1.2.2
 httpx==0.28.1
-pytest==9.0.3
-ruff==0.12.4
-greenlet==3.5.3
-numpy==2.2.6
+numpy==2.4.6
 opencv-python-headless==4.11.0.86
 python-multipart==0.0.32
+rasterio==1.4.4
+shapely==2.2.0
+ultralytics==8.4.177

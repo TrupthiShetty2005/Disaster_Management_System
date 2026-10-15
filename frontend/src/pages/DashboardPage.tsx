@@ -1,268 +1,190 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Breadcrumbs } from "../components/Breadcrumbs";
-import { LIVE_REGION } from "../constants/demo";
-import { KpiCard } from "../components/KpiCard";
-import { DisasterMap } from "../components/DisasterMap";
-import { DashboardCharts } from "../components/DashboardCharts";
-import { AlertPanel } from "../components/AlertPanel";
-import { SelectedAreaPanel } from "../components/SelectedAreaPanel";
-import { EmptyState, LoadingState, ErrorState } from "../components/Feedback";
-
-/** Exclusive panel view: never loading+empty, and empty ≠ error. */
-export function dashboardLayerView(args: {
-  loading: boolean;
-  error: string | null;
-  hasPayload: boolean;
-}): "loading" | "error" | "empty" | "ready" {
-  if (args.loading) return "loading";
-  if (args.error) return "error";
-  if (!args.hasPayload) return "empty";
-  return "ready";
-}
+import { Link } from "react-router-dom";
+import { getAlerts, getOverview } from "../api/endpoints";
+import type { Overview } from "../api/types";
+import { Async, Card, Empty, ErrorBox, Kpi, LevelBadge, PageHeader, Source } from "../components/ui";
 import { useAsync } from "../hooks/useAsync";
-import { fetchDisasters } from "../services/disasters";
-import { fetchAlerts } from "../services/ops";
-import { fetchWeatherCurrent } from "../services/weather";
-import { fetchAnalytics, fetchAnalyticsOverview } from "../services/analytics";
-import { fetchGisWithProvenance } from "../services/gis";
-import {
-  aoiBoundary,
-  featureLatLon,
-  mergeDashboardCatalog,
-  satelliteFootprint,
-} from "../utils/dashboardMap";
-import { fetchSatelliteImages } from "../services/satellite";
-import { fetchFloodEvents } from "../services/flood";
-import { fetchAoi } from "../services/region";
-import { useDataSources } from "../components/DataModeBadge";
-import type { GisFeature } from "../types/gis";
+import { fmt, fmtDate, inr, label, levelColor, timeAgo } from "../lib/format";
+import { KarnatakaMap } from "../maps/KarnatakaMap";
+import { ClusterMarkers, DetectionMarkers, EventMarkers, StationMarkers } from "../maps/layers";
 
-export function DashboardPage() {
-  const navigate = useNavigate();
-  const aoi = useAsync(fetchAoi, []);
-  const disasters = useAsync(fetchDisasters, []);
-  const alerts = useAsync(fetchAlerts, []);
-  const weather = useAsync(fetchWeatherCurrent, []);
-  const analytics = useAsync(fetchAnalytics, []);
-  const overview = useAsync(fetchAnalyticsOverview, []);
-  const gis = useAsync(fetchGisWithProvenance, []);
-  const satellite = useAsync(() => fetchSatelliteImages(), []);
-  const flood = useAsync(fetchFloodEvents, []);
-  const dataSources = useDataSources();
-  const [selected, setSelected] = useState<GisFeature | null>(null);
-  const [copiedCoords, setCopiedCoords] = useState<string | null>(null);
-  const [focusAlertId, setFocusAlertId] = useState<string | null>(null);
+function Unavailable({ section }: { section: { status: string; detail?: string } }) {
+  return section.status === "live" ? null : <ErrorBox message={`Live source unavailable: ${section.detail ?? "unknown error"}`} />;
+}
 
-  const demoMode = Boolean(dataSources?.use_mock_providers === true || dataSources?.data_mode === "DEMO DATA");
-  const items = disasters.data?.items ?? [];
-  const kpis = overview.data?.kpis;
-  const floodEvent = flood.data?.items?.[0];
-  const latestScene = satellite.data?.items?.[0];
-  const catalog = useMemo(
-    () =>
-      mergeDashboardCatalog({
-        osmFeatures: gis.data?.features,
-        flood: floodEvent,
-        alerts: alerts.data?.items,
-        allowKeralaDemo: demoMode,
-      }),
-    [gis.data?.features, floodEvent, alerts.data?.items, demoMode],
+function Summary({ o }: { o: Overview }) {
+  const water = o.water.data;
+  const fire = o.fire.data;
+  const rain = o.rain.data;
+  const elevated = water ? water.stations.filter((s) => ["WATCH", "WARNING", "SEVERE"].includes(s.status)).length : null;
+  const vegetationClusters = fire ? fire.active_clusters.length : null;
+  return (
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      <Kpi label="Open alerts" value={o.alerts.open} hint={Object.entries(o.alerts.by_hazard).map(([h, n]) => `${n} ${h}`).join(" · ") || "none active"} color={o.alerts.open ? "#f97316" : "#34d399"} />
+      <Kpi label="Rivers above normal" value={elevated ?? "—"} hint={water ? `of ${water.stations.length} GloFAS stations (now or forecast)` : "GloFAS unavailable"} color={elevated ? "#facc15" : "#34d399"} />
+      <Kpi label="Fire detections (24 h)" value={fire ? fire.detections_24h : "—"} hint={fire ? `${vegetationClusters} active fire clusters · ${fire.industrial_sources.length} industrial sources excluded` : "FIRMS unavailable"} color="#f97316" />
+      <Kpi label="Heavy rain forecast" value={rain ? rain.heavy_forecast.length : "—"} hint={rain ? `districts ≥ 64.5 mm/day in 7 days · wettest week: ${rain.wettest_7d ?? "—"}` : "Open-Meteo unavailable"} color={rain?.heavy_forecast.length ? "#f59e0b" : "#38bdf8"} />
+    </div>
   );
-  const mapBoundary = aoiBoundary(
-    (aoi.data?.boundary_geojson as GeoJSON.GeoJsonObject | null) ?? null,
-    aoi.data?.bbox,
-  );
-  const mapFootprint = satelliteFootprint(latestScene);
-  const mapCenter: [number, number] | undefined = aoi.data
-    ? [aoi.data.latitude, aoi.data.longitude]
-    : undefined;
-  const floodedRaw =
-    floodEvent?.newly_flooded_area_km2 ??
-    floodEvent?.flooded_area ??
-    (typeof kpis?.flooded_area === "number" && Number(kpis.flooded_area) > 0 ? kpis.flooded_area : null);
-  const floodedKm = typeof floodedRaw === "number" && floodedRaw > 0 ? floodedRaw : null;
-  const weatherObserved = weather.data?.observed_at
-    ? new Date(weather.data.observed_at).toISOString()
-    : null;
-  const weatherView = dashboardLayerView({
-    loading: weather.loading,
-    error: weather.error,
-    hasPayload: Boolean(weather.data),
-  });
-  const satelliteView = dashboardLayerView({
-    loading: satellite.loading,
-    error: satellite.error,
-    hasPayload: Boolean(latestScene),
-  });
-  const gisView = dashboardLayerView({
-    loading: gis.loading,
-    error: gis.error,
-    hasPayload: Boolean(gis.data),
-  });
+}
+
+export default function DashboardPage() {
+  const overview = useAsync(getOverview, [], 300_000);
+  const alerts = useAsync(() => getAlerts("open"), [], 120_000);
 
   return (
     <div className="space-y-3">
-      <Breadcrumbs items={[{ label: "Command dashboard" }]} />
-      <p className="text-xs text-slate-400">
-        AOI{" "}
-        <span className="text-amber-200">{aoi.data?.aoi_name || LIVE_REGION}</span>
-        {aoi.data ? (
-          <span className="font-mono text-slate-500">
-            {" "}
-            · {aoi.data.latitude.toFixed(4)}°N {aoi.data.longitude.toFixed(4)}°E
-          </span>
-        ) : null}
-        . Maps, OSM, satellite, and weather use this area. Seeded Kuttanad incidents and rescue inventory are not shown
-        as Karnataka operations.
-      </p>
-      {aoi.error ? <ErrorState message={`AOI: ${aoi.error}`} /> : null}
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <KpiCard
-          label="Active disasters"
-          value={disasters.error ? "UNAVAILABLE" : String(items.filter((d) => d.status === "active").length)}
-          hint={disasters.error ? disasters.error : demoMode ? "Demo incidents" : "Live incident API (seeded rows hidden)"}
-        />
-        <KpiCard
-          label="Critical alerts"
-          value={
-            alerts.error
-              ? "UNAVAILABLE"
-              : String(
-                  (alerts.data?.items ?? []).filter((a) => {
-                    const s = a.severity.toLowerCase();
-                    return s === "critical" || s === "severe";
-                  }).length,
-                )
-          }
-          hint={alerts.error ? alerts.error : "Alert feed; not IMD unless sourced as IMD"}
-        />
-        <KpiCard
-          label="Population at risk"
-          value={demoMode ? String(kpis?.affected_population ?? "—") : "UNAVAILABLE"}
-          hint={demoMode ? "SIMULATED demo" : "No census feed"}
-        />
-        <KpiCard
-          label="Newly water-covered"
-          value={flood.error || floodedKm == null ? "UNAVAILABLE" : `${floodedKm} km²`}
-          hint={
-            flood.error
-              ? flood.error
-              : floodEvent
-                ? `${floodEvent.estimate_label ?? "heuristic"} · ${floodEvent.after_date ?? ""}`
-                : demoMode
-                  ? "SIMULATED demo extent"
-                  : "No live flood analysis yet"
-          }
-        />
-        <KpiCard
-          label="Damaged buildings"
-          value={demoMode ? String(kpis?.damaged_buildings ?? 0) : "UNAVAILABLE"}
-          hint={demoMode ? "SIMULATED demo count" : "No damage overlay dataset"}
-        />
-        <KpiCard
-          label="Rescue units / shelters"
-          value={demoMode ? String(kpis?.resource_utilization ?? "—") : "UNAVAILABLE"}
-          hint={demoMode ? "Demo inventory" : "No live vehicle or shelter feed"}
-        />
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3 text-xs">
-        <section className="rounded border border-line bg-panel p-3">
-          <h3 className="mb-1 uppercase tracking-widest text-slate-500">Weather (OpenWeather)</h3>
-          {weatherView === "loading" ? <LoadingState /> : null}
-          {weatherView === "error" ? <p className="text-rose-300">Unavailable: {weather.error}</p> : null}
-          {weatherView === "empty" ? <EmptyState message="No observation yet." /> : null}
-          {weatherView === "ready" && weather.data ? (
-            <>
-              <p>
-                {weather.data.conditions} · {weather.data.temperature_c}°C · {weather.data.rainfall_mm ?? "—"} mm ·{" "}
-                {weather.data.wind_speed_ms} m/s
-              </p>
-              <p className="text-slate-500">
-                {weather.data.source} · {weather.data.record_kind ?? "current_observation"} · observed{" "}
-                {weatherObserved ?? "—"} · river gauge UNAVAILABLE
-              </p>
-            </>
-          ) : null}
-        </section>
-        <section className="rounded border border-line bg-panel p-3">
-          <h3 className="mb-1 uppercase tracking-widest text-slate-500">Satellite (Copernicus STAC)</h3>
-          {satelliteView === "loading" ? <LoadingState /> : null}
-          {satelliteView === "error" ? <p className="text-rose-300">Unavailable: {satellite.error}</p> : null}
-          {satelliteView === "empty" ? (
-            <EmptyState message="No Sentinel scenes for this AOI/date window." />
-          ) : null}
-          {satelliteView === "ready" && latestScene ? (
-            <>
-              <p>{latestScene.title}</p>
-              <p className="text-slate-500">
-                Acquired {new Date(latestScene.acquisition_time).toISOString()} · cloud {latestScene.cloud_cover}% ·{" "}
-                {String(latestScene.metadata?.stac_id || latestScene.id)} · method: catalogue/preview (not real-time)
-              </p>
-            </>
-          ) : null}
-        </section>
-        <section className="rounded border border-line bg-panel p-3">
-          <h3 className="mb-1 uppercase tracking-widest text-slate-500">Infrastructure (OSM Overpass)</h3>
-          {gisView === "loading" ? <LoadingState /> : null}
-          {gisView === "error" ? <p className="text-rose-300">Unavailable: {gis.error}</p> : null}
-          {gisView === "empty" ? <EmptyState message="No OSM layer loaded." /> : null}
-          {gisView === "ready" && gis.data ? (
-            <>
-              <p>
-                {gis.data.total} mapped features · {gis.data.data_provenance?.status} ·{" "}
-                {gis.data.cache_hit ? `cached ${gis.data.cache_age_sec ?? 0}s` : "fresh"}
-              </p>
-              <p className="text-slate-500">
-                {gis.data.data_provenance?.provider} · retrieved {gis.data.data_provenance?.retrieved_at ?? "—"} ·
-                volunteer OSM, not official government infrastructure
-              </p>
-            </>
-          ) : null}
-        </section>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="h-[min(62vh,640px)] min-h-[420px]">
-          <DisasterMap
-            catalog={catalog}
-            onSelect={setSelected}
-            onFeatureAction={(feature) => {
-              const act = feature.properties.clickAction;
-              if (act === "copy-coords") {
-                const pt = featureLatLon(feature);
-                if (pt) {
-                  const text = `${pt.lat.toFixed(5)}, ${pt.lon.toFixed(5)}`;
-                  void navigator.clipboard?.writeText(text);
-                  setCopiedCoords(text);
-                }
-              } else if (act === "open-flood") {
-                navigate("/flood-detection");
-              } else if (act === "open-alert") {
-                if (feature.properties.alertId) setFocusAlertId(feature.properties.alertId);
-              }
-            }}
-            boundary={mapBoundary}
-            footprint={mapFootprint}
-            center={mapCenter}
-            osmUnavailable={Boolean(gis.error)}
-          />
-        </div>
-        <div className="space-y-3">
-          <SelectedAreaPanel feature={selected} note={copiedCoords ? `Copied ${copiedCoords}` : null} />
-          <div className="h-[280px]">
-            {alerts.error ? (
-              <ErrorState message={alerts.error} />
-            ) : (
-              <AlertPanel items={alerts.data?.items ?? []} highlightedId={focusAlertId} />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {analytics.error ? <ErrorState message={`Analytics: ${analytics.error}`} /> : null}
-      {analytics.data ? <DashboardCharts data={analytics.data} /> : null}
+      <PageHeader title="Karnataka situation" subtitle="Live river discharge forecasts, satellite fire detections, rainfall and disaster events across Karnataka. Every number on this page comes from a public live data feed." />
+      <Async state={overview} loadingText="Fetching live feeds (GloFAS, FIRMS, Open-Meteo, GDACS)…">
+        {(o) => (
+          <>
+            <Summary o={o} />
+            <div className="grid gap-3 xl:grid-cols-[1fr_380px]">
+              <Card title="Live hazard map" actions={<span className="text-[11px] text-slate-500">rivers · FIRMS fires (24 h) · fire clusters · GDACS events</span>}>
+                <KarnatakaMap height={560}>
+                  {o.fire.data ? <ClusterMarkers clusters={[...o.fire.data.active_clusters, ...o.fire.data.industrial_sources]} /> : null}
+                  {o.fire.data ? <DetectionMarkers detections={o.fire.data.detections_24h_points} /> : null}
+                  {o.water.data ? <StationMarkers stations={o.water.data.stations} /> : null}
+                  {o.events.data ? <EventMarkers events={o.events.data.filter((e) => e.near_karnataka)} /> : null}
+                </KarnatakaMap>
+                <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-400">
+                  {["NORMAL", "WATCH", "WARNING", "SEVERE"].map((l) => (
+                    <span key={l} className="flex items-center gap-1">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: levelColor(l) }} /> River {label(l)}
+                    </span>
+                  ))}
+                  <span className="flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-full bg-orange-500" /> VIIRS/MODIS fire pixel
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-full border border-dashed border-slate-400" /> Persistent industrial heat (excluded)
+                  </span>
+                </div>
+              </Card>
+              <div className="space-y-3">
+                <Card title="Active alerts" actions={<Link to="/alerts" className="text-xs text-amber-300">All alerts →</Link>}>
+                  <Async state={alerts}>
+                    {(a) =>
+                      a.items.length ? (
+                        <ul className="max-h-72 space-y-2 overflow-auto">
+                          {a.items.slice(0, 12).map((al) => (
+                            <li key={al.id} className="border-l-2 pl-2" style={{ borderColor: levelColor(al.severity) }}>
+                              <p className="text-sm text-slate-200">{al.title}</p>
+                              <p className="text-[11px] text-slate-500">
+                                {al.source} · updated {timeAgo(al.updated_at)}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <Empty>No live condition currently crosses an alert threshold.</Empty>
+                      )
+                    }
+                  </Async>
+                </Card>
+                <Card title="River outlook" actions={<Link to="/water" className="text-xs text-amber-300">Details →</Link>}>
+                  <Unavailable section={o.water} />
+                  {o.water.data ? (
+                    <table className="w-full text-xs">
+                      <tbody>
+                        {o.water.data.stations.slice(0, 8).map((s) => (
+                          <tr key={s.id} className="border-b border-line/50">
+                            <td className="py-1 text-slate-300">{s.name}</td>
+                            <td className="text-right text-slate-400">{fmt(s.percent_of_2yr_flood)}% Q2</td>
+                            <td className="pl-2 text-right">
+                              <LevelBadge level={s.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : null}
+                </Card>
+              </div>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-3">
+              <Card title="Fire by district (24 h)">
+                <Unavailable section={o.fire} />
+                {o.fire.data ? (
+                  Object.keys(o.fire.data.by_district_24h).length ? (
+                    <ul className="space-y-1 text-sm">
+                      {Object.entries(o.fire.data.by_district_24h).map(([d, n]) => (
+                        <li key={d} className="flex justify-between">
+                          <span className="text-slate-300">{d}</span>
+                          <span className="text-orange-300">{n}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <Empty>No satellite fire detections in Karnataka in the last 24 hours.</Empty>
+                  )
+                ) : null}
+                <Source>NASA FIRMS VIIRS (S-NPP, NOAA-20, NOAA-21) + MODIS, clipped to the Karnataka boundary.</Source>
+              </Card>
+              <Card title="Rain: next 7 days">
+                <Unavailable section={o.rain} />
+                {o.rain.data ? (
+                  <ul className="space-y-1 text-sm">
+                    {[...o.rain.data.districts]
+                      .sort((a, b) => b.forecast_7d_mm - a.forecast_7d_mm)
+                      .slice(0, 8)
+                      .map((d) => (
+                        <li key={d.id} className="flex items-center justify-between gap-2">
+                          <span className="text-slate-300">{d.name}</span>
+                          <span className="text-sky-300">{fmt(d.forecast_7d_mm)} mm</span>
+                          <LevelBadge level={d.category} />
+                        </li>
+                      ))}
+                  </ul>
+                ) : null}
+                <Source>Open-Meteo forecast (ECMWF/GFS blend); IMD 24-hour rainfall categories.</Source>
+              </Card>
+              <Card title="Recent satellite analyses" actions={<Link to="/satellite" className="text-xs text-amber-300">Run analysis →</Link>}>
+                {o.recent_analyses.length ? (
+                  <ul className="space-y-2 text-sm">
+                    {o.recent_analyses.map((a) => (
+                      <li key={a.id}>
+                        <Link to={`/impact?analysis=${a.id}`} className="text-slate-200 hover:text-amber-300">
+                          {a.kind === "flood" ? "Flood" : "Burn scar"} · {a.area_name}
+                        </Link>
+                        <p className="text-[11px] text-slate-500">
+                          {fmtDate(a.created_at)} · {fmt(a.impact_summary?.buildings)} buildings · {fmt(a.impact_summary?.road_km, 1)} km road · {inr(a.loss)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <Empty>No analyses yet. Run a Sentinel-1/2 analysis from the Satellite page.</Empty>
+                )}
+              </Card>
+            </div>
+            {o.events.data && o.events.data.length ? (
+              <Card title="GDACS disaster events (India, last 90 days)">
+                <ul className="grid gap-2 text-sm md:grid-cols-2">
+                  {o.events.data.map((e) => (
+                    <li key={e.id} className="rounded border border-line p-2">
+                      <p className="text-slate-200">
+                        {e.name} <LevelBadge level={e.alert_level === "Red" ? "SEVERE" : e.alert_level === "Orange" ? "WARNING" : "NORMAL"} text={e.alert_level} />
+                        {e.inside_karnataka ? <span className="ml-1 text-[11px] text-amber-300">in Karnataka</span> : null}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {fmtDate(e.from_date)} – {fmtDate(e.to_date)} · {e.is_current ? "ongoing" : "ended"}
+                        {e.report_url ? (
+                          <>
+                            {" · "}
+                            <a className="text-sky-400" href={e.report_url} target="_blank" rel="noreferrer">
+                              report
+                            </a>
+                          </>
+                        ) : null}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ) : null}
+          </>
+        )}
+      </Async>
     </div>
   );
 }

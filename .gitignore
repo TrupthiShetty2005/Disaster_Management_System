@@ -11,6 +11,8 @@ __pycache__/
 node_modules/
 frontend/dist/
 *.db
+*.db-shm
+*.db-wal
 storage/
 sk-live-*.json
 *.pem

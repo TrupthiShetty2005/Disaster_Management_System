@@ -1,80 +1,53 @@
-from app.db.seed import DIS_FLOOD
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api import routes
+from app.core.errors import SourceUnavailable
+from app.main import app
+
+
+@pytest.fixture()
+def client(db):
+    return TestClient(app)
 
 
 def test_health(client):
     r = client.get("/api/v1/health")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["status"] == "ok"
-    assert body["service"] == "VisionGuard AI"
-    assert "use_mock_providers" in body
-    assert body["data_mode"] in {"DEMO DATA", "REAL DATA"}
-    blob = str(body).lower()
-    for needle in ("api_key", "client_secret", "password", "appid", "bearer"):
-        assert needle not in blob
+    assert r.status_code == 200 and r.json()["region"] == "Karnataka, India"
 
 
-def test_health_real_data_mode_label(client, monkeypatch):
-    from app.core.config import settings
+def test_unavailable_source_returns_503_with_source_name(client, monkeypatch):
+    def down():
+        raise SourceUnavailable("open-meteo-flood", "HTTP 429")
 
-    monkeypatch.setattr(settings, "use_mock_providers", False)
-    body = client.get("/api/v1/health").json()
-    assert body["use_mock_providers"] is False
-    assert body["data_mode"] == "REAL DATA"
-
-
-def test_list_disasters(client):
-    r = client.get("/api/v1/disasters")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["total"] >= 3
-    assert any(d["disaster_type"] == "flood" for d in body["items"])
+    monkeypatch.setattr(routes.water, "stations", lambda include_series=True: down())
+    r = client.get("/api/v1/water/stations")
+    assert r.status_code == 503
+    assert r.json() == {"error": "source_unavailable", "source": "open-meteo-flood", "detail": "HTTP 429"}
 
 
-def test_get_disaster(client):
-    r = client.get(f"/api/v1/disasters/{DIS_FLOOD}")
-    assert r.status_code == 200
-    assert r.json()["id"] == DIS_FLOOD
+def test_unknown_station_is_404(client, monkeypatch):
+    def missing(_id):
+        raise KeyError(_id)
+
+    monkeypatch.setattr(routes.water, "station", missing)
+    assert client.get("/api/v1/water/stations/nope").status_code == 404
 
 
-def test_disaster_not_found(client):
-    r = client.get("/api/v1/disasters/00000000-0000-4000-8000-000000000000")
-    assert r.status_code == 404
-    assert r.json()["code"] == "not_found"
+def test_rescue_rejects_points_outside_karnataka(client):
+    assert client.get("/api/v1/rescue/plan?lat=28.6&lon=77.2").status_code == 422
 
 
-def test_risk_zones_weather_alerts_resources_centers(client):
-    assert client.get("/api/v1/risk-zones").status_code == 200
-    assert client.get("/api/v1/weather/current").status_code == 200
-    assert client.get("/api/v1/weather/forecast").status_code == 200
-    assert client.get("/api/v1/alerts").json()["total"] >= 1
-    assert client.get("/api/v1/resources").json()["total"] >= 1
-    assert client.get("/api/v1/evacuation-centers").json()["total"] >= 1
+def test_vision_rejects_non_images(client):
+    r = client.post("/api/v1/vision/detect", files={"file": ("notes.txt", b"hello", "text/plain")})
+    assert r.status_code == 400
 
 
-def test_weather_intel_and_risk_zone_detail(client):
-    current = client.get("/api/v1/weather/current")
-    assert current.status_code == 200
-    body = current.json()
-    assert "visibility_km" in body
-    assert "river_level_m" in body
+def test_alerts_empty_and_actions_404(client):
+    assert client.get("/api/v1/alerts").json() == {"items": [], "total": 0}
+    assert client.post("/api/v1/alerts/missing/acknowledge", json={"actor": "x"}).status_code == 404
 
-    assert client.get("/api/v1/weather/history").status_code == 200
-    rain = client.get("/api/v1/weather/rainfall")
-    assert rain.status_code == 200
-    assert 0 <= rain.json()["short_term_risk"] <= 100
 
-    flood = client.get("/api/v1/risk/flood")
-    assert flood.status_code == 200
-    assert "Prototype AI Risk Estimate" in flood.json()["estimate_label"]
-
-    alerts = client.get("/api/v1/weather/alerts")
-    assert alerts.status_code == 200
-    assert "no SMS/email sent" in alerts.json()["dispatch"]
-
-    zones = client.get("/api/v1/risk-zones").json()
-    zone_id = zones["items"][0]["id"]
-    detail = client.get(f"/api/v1/risk-zones/{zone_id}")
-    assert detail.status_code == 200
-    assert detail.json()["contributing_factors"]
-
+def test_satellite_preview_validates_bbox(client):
+    r = client.get("/api/v1/satellite/preview", params={"key": "sentinel-1-rtc:2026-10-14", "kind": "sar", "bbox": "74,12,76,14"})
+    assert r.status_code == 400

@@ -1,116 +1,81 @@
-# VisionGuard AI
+# VisionGuard AI — Karnataka live disaster monitoring
 
-Intelligent **computer-vision disaster management** decision-support **prototype**. A React operations console and FastAPI `/api/v1` backend walk a **simulated** Kuttanad (Kerala) flood from weather and risk through satellite/flood/damage views, rescue recommendations, prototype alerts, and analytics.
+A disaster-monitoring console for **Karnataka, India**, built only on live public data. It predicts **river flooding**, detects and forecasts **fire**, maps flood water and burn scars from **real Sentinel satellite imagery**, and estimates **infrastructure losses** from OpenStreetMap. Every number comes from a live feed at request time. If a source is down, the affected panel says so.
 
-**This is not an operational emergency system.** Default Demo Mode uses mock weather, synthetic satellite rasters, OpenCV/rule-based estimates, and dashboard alerts that are **not** government warnings. Live OpenWeather and local YOLO weights are optional. VisionGuard AI does not replace authorized emergency-management decisions.
+## What it does
 
-Full documentation index: **[docs/README.md](docs/README.md)**
-
-## Architecture
-
-```mermaid
-flowchart TB
-  USER[User] --> FE[React frontend]
-  FE --> AC[apiClient]
-  AC --> API[FastAPI /api/v1]
-  API --> SVC[Service layer]
-  SVC --> DB[(SQLite or Postgres URL)]
-  SVC --> MOCK[Mock weather / satellite / demo vision]
-  SVC -.-> OW[Optional OpenWeather]
-  SVC -.-> YOLO[Optional local YOLO]
-  FE --> GIS[gisMock Leaflet layers]
-```
-
-Source: [docs/diagrams/system-architecture.mmd](docs/diagrams/system-architecture.mmd)
-
-## Main modules
-
-| Module | UI route | Backend |
+| Area | Live source | What the app computes |
 | --- | --- | --- |
-| Dashboard | `/dashboard` | disasters, alerts, analytics |
-| Weather | `/weather` | `/weather/*`, `/risk/*` |
-| Risk | `/risk-intelligence` | `/risk-zones`, `/risk/flood` |
-| Satellite | `/satellite` | `/satellite/*` |
-| Flood | `/flood-detection` | `/flood/*` |
-| Computer vision | `/computer-vision` | `/vision/*` |
-| Damage | `/damage-assessment` | `/damage/*` |
-| Rescue | `/rescue-planning` | `/rescue/*`, `/resources` |
-| Alerts | `/alerts` | `/alerts/*` |
-| Analytics | `/analytics` | `/analytics/*` |
-| Incident | `/disasters/:id` | `/incidents/{id}` |
+| **Water levels** | Copernicus **GloFAS v4** river discharge via Open-Meteo Flood API | Daily discharge at 16 Karnataka dams/gauges + 30-day ensemble forecast. Flood thresholds (2/5/20-year return levels) are fitted per river cell from its June–November maxima since 2005 (Gumbel). Status: NORMAL / WATCH / WARNING / SEVERE, now and predicted. |
+| **Rainfall** | **Open-Meteo** forecast + recent observations, **OpenWeather** current weather | 30-day observed and 7-day forecast rain for all 31 districts, classified with IMD 24-hour categories. |
+| **Fire** | **NASA FIRMS** VIIRS (S-NPP, NOAA-20, NOAA-21) + MODIS near-real-time | Detections clipped to the Karnataka boundary, clustered into fire events (2 km). Persistent industrial heat sources such as steel plants are recognised and excluded. 7-day **fire-danger forecast** (Fosberg FFWI) per district. |
+| **Satellite** | **Sentinel-1 RTC** and **Sentinel-2 L2A** from Microsoft Planetary Computer | Flood mapping: SAR VV backscatter change, or optical NDWI. Burn scars: dNBR with USGS severity classes. Outputs georeferenced polygons, before/after/change images, and the exact scene IDs used. |
+| **Infrastructure losses** | **OpenStreetMap** (Overpass) | Satellite/FIRMS footprint × buildings, roads (by class), railways, power lines and critical facilities. Losses use configurable unit costs × damage ratio, and every assumption is returned with the result. |
+| **Alerts** | All of the above + **GDACS** | Raised automatically every 30 min when a live value crosses a threshold. Alerts escalate, auto-resolve when the condition clears, expire, and stream to the browser via server-sent events. |
+| **Rescue planning** | OpenStreetMap facilities + **OSRM** routing | Nearest hospitals, fire stations and police stations, ranked by real road drive time. |
+| **Computer vision** | YOLOv8n (Ultralytics, COCO) | Counts people, vehicles, boats and animals in uploaded drone/field photos. |
 
-## Technology stack
+Only OpenWeather needs an API key. Every other source is free and keyless.
 
-| Layer | Actual stack |
-| --- | --- |
-| Frontend | React 19, TypeScript, Vite, Tailwind, Leaflet, Chart.js |
-| Backend | FastAPI, SQLAlchemy, Pydantic, NumPy, OpenCV headless |
-| Data | SQLite default; Compose can start PostGIS (ORM still uses JSON GeoJSON) |
-| AI | Demo detectors + heuristics; optional Ultralytics YOLO if you supply weights |
+## Run locally
 
-**PyTorch is not in this repository.**
+Backend (Python 3.11):
 
-## Project structure
-
-```
-frontend/   React UI
-backend/    FastAPI product API
-ai/         Stub package (not imported by FastAPI)
-src/        Legacy NASA/NOAA/OpenWeather API (not the dashboard backend)
-docs/       Guides and Mermaid diagrams
-scripts/    Demo seed
-```
-
-## How data flows
-
-Pages call `frontend/src/services/*`. If `VITE_USE_MOCK` is not `"false"`, they use `data/mock.ts`. Otherwise they `fetch` `/api/v1`. FastAPI services read/write SQLAlchemy models and/or mock providers. The command map uses **static** `gisMock.ts`, not PostGIS. Details: [docs/diagrams/data-flow.mmd](docs/diagrams/data-flow.mmd).
-
-## How to run
-
-```powershell
-copy .env.example .env
-copy frontend\.env.example frontend\.env
+```bash
 cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --app-dir .
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+cp ../.env.example .env        # add your OPENWEATHER_API_KEY
+uvicorn app.main:app --port 8000
 ```
 
-```powershell
+Frontend (Node 20+):
+
+```bash
 cd frontend
 npm install
-npm run dev
+echo "VITE_API_BASE_URL=http://127.0.0.1:8000" > .env
+npm run dev                    # http://localhost:5173
 ```
 
-- UI: http://127.0.0.1:5173/dashboard  
-- API: http://127.0.0.1:8000/docs  
+Or with Docker: `docker compose up --build` after creating `backend/.env`.
 
-Seed: `python scripts/seed_demo_data.py`  
-Docker: `docker compose up --build` (needs Docker engine)  
-More: [docs/RUNNING_THE_PROJECT.md](docs/RUNNING_THE_PROJECT.md)
+On first start the backend downloads reference data in the background and caches it on disk under `backend/storage/cache`:
 
-## Demo workflow
+- Karnataka and district boundaries (OSM Nominatim, ~35 s)
+- Statewide emergency facilities (Overpass, ~1 min)
+- 20 years of seasonal discharge maxima for the 16 river stations
 
-Kuttanad flood ID `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`: Dashboard → Incident → Weather → Risk (82% simulated) → Satellite → Flood → Damage → Rescue (accept/modify/reject) → Alerts → Analytics.  
-Walkthrough: [docs/END_TO_END_EXAMPLE.md](docs/END_TO_END_EXAMPLE.md)
+River status shows `CALIBRATING` until a station's thresholds are ready.
 
-## AI capabilities (actual)
+## API
 
-| Capability | What it is |
-| --- | --- |
-| Flood extent | OpenCV water pixels — **not** trained U-Net |
-| Damage | Raster change + rules — **not** a trained damage net |
-| Vision | `DemoVisionModel` boxes; YOLO only with local file |
-| Risk | Weighted formulas + optional 82% demo overlay |
-| Rescue | If-then resources + demo graph routes |
+Interactive docs are at `http://localhost:8000/docs`. Main routes under `/api/v1`:
 
-## Current implementation status
+- `GET /overview`, `/sources`, `/geo/karnataka`, `/geo/districts`, `/geo/stations`
+- `GET /water/stations`, `/water/stations/{id}`
+- `GET /rainfall/districts`, `/weather/{district_id}`
+- `GET /fire/detections?window=24h|48h|7d`, `/fire/clusters`, `/fire/danger`, `POST /impact/fire-cluster`
+- `GET /events` (GDACS)
+- `GET /satellite/scenes`, `/satellite/preview`, `POST /satellite/analyze`, `GET /analyses[/{id}]`
+- `GET /alerts`, `POST /alerts/refresh`, `POST /alerts/{id}/acknowledge|resolve`, `GET /alerts/stream` (SSE)
+- `GET /analytics`, `/rescue/plan?lat=&lon=`
+- `GET /vision/status`, `POST /vision/detect`, `GET /vision/jobs`
 
-See the matrix: [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+When an upstream source fails, the API returns `503 {"error": "source_unavailable", "source": "...", "detail": "..."}`. It never substitutes made-up values.
 
-## Documentation
+## Tests
 
-**[docs/README.md](docs/README.md)** — architecture, API reference, GIS, AI honesty labels, diagrams, technical debt.
+```bash
+cd backend && pytest                 # unit tests (offline)
+cd backend && pytest -m integration  # hits the real FIRMS, GloFAS, Open-Meteo, Planetary Computer, GDACS
+cd frontend && npm test && npm run lint && npm run build
+```
 
-## Screenshots
+## Limits worth knowing
 
-_Add demo captures here before presentation._
+- GloFAS is a hydrological model at ~5 km resolution, not a gauge reading. Thresholds are relative to the model's own climatology, which is the standard way GloFAS flood signals are issued.
+- Satellite flood maps compare two acquisition dates. A reservoir filling up after the monsoon appears as "newly flooded" relative to the dry-season baseline.
+- Loss figures are indicative planning estimates (exposure × unit cost × damage ratio), not surveyed damage.
+- Public Overpass/OSRM servers are rate-limited. Large urban footprints can take a minute or be temporarily unavailable.
+- This is a student project, not an official warning service. Follow KSNDMC/IMD/district administration advisories.

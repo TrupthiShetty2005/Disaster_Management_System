@@ -1,25 +1,22 @@
 import os
+import tempfile
 
-# Unit/API tests always run against Demo Mode so live .env keys cannot change assertions.
-os.environ["USE_MOCK_PROVIDERS"] = "true"
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test_visionguard.db")
+_tmp = tempfile.mkdtemp(prefix="visionguard-test-")
+os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
+os.environ["CACHE_DIR"] = f"{_tmp}/cache"
+os.environ["STORAGE_DIR"] = f"{_tmp}/storage"
 
-import pytest
-from fastapi.testclient import TestClient
+import pytest  # noqa: E402
 
-# Reload settings after forcing mock so app.core.config.settings picks it up.
-from app.core import config as config_module
-
-config_module.settings = config_module.Settings()
-
-from app.db.init_db import init_db
-from app.db.seed import seed_if_empty
-from app.main import app
+from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 
 
-@pytest.fixture(scope="session")
-def client():
+@pytest.fixture()
+def db():
     init_db()
-    seed_if_empty()
-    with TestClient(app) as c:
-        yield c
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(engine)

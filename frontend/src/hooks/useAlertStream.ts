@@ -1,42 +1,35 @@
-import { useEffect, useRef } from "react";
-import { apiBase, isMockMode } from "../services/apiClient";
-import { pollAlertEvents } from "../services/alerts";
+import { useEffect, useRef, useState } from "react";
+import { apiUrl } from "../api/client";
 
-/** SSE first; falls back to polling `/alerts/events`. */
-export function useAlertStream(onEvent: () => void) {
-  const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+export interface StreamEvent {
+  type: string;
+  id?: string;
+  title?: string;
+  severity?: string;
+  emitted_at?: string;
+  [key: string]: unknown;
+}
+
+/** Subscribe to the backend's server-sent alert events. `connected` reflects the live EventSource state. */
+export function useAlertStream(onEvent: (e: StreamEvent) => void) {
+  const [connected, setConnected] = useState(false);
+  const cb = useRef(onEvent);
+  cb.current = onEvent;
 
   useEffect(() => {
-    if (isMockMode()) return;
-    let stopped = false;
-    let since = "";
-    const es = new EventSource(`${apiBase()}/api/v1/alerts/stream`);
-    let usingSse = false;
-    es.onmessage = () => {
-      usingSse = true;
-      onEventRef.current();
-    };
-    es.onerror = () => {
-      usingSse = false;
-      es.close();
-    };
-    const poll = window.setInterval(async () => {
-      if (stopped || usingSse) return;
+    const es = new EventSource(apiUrl("/alerts/stream"));
+    es.onopen = () => setConnected(true);
+    es.onerror = () => setConnected(false);
+    es.onmessage = (msg) => {
       try {
-        const res = await pollAlertEvents(since || undefined);
-        if (res.items.length) {
-          since = res.items[res.items.length - 1]?.emitted_at ?? since;
-          onEventRef.current();
-        }
+        const ev = JSON.parse(msg.data as string) as StreamEvent;
+        if (ev.type !== "hello") cb.current(ev);
       } catch {
-        /* ignore */
+        /* ignore malformed frames */
       }
-    }, 8000);
-    return () => {
-      stopped = true;
-      es.close();
-      window.clearInterval(poll);
     };
+    return () => es.close();
   }, []);
+
+  return connected;
 }

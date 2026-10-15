@@ -1,194 +1,186 @@
-import { useEffect, useState } from "react";
-import { Bar, Doughnut, Line } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  ArcElement,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Tooltip,
-  Legend,
-  Filler,
-} from "chart.js";
-import { Breadcrumbs } from "../components/Breadcrumbs";
-import { EmptyState, ErrorState, LoadingState } from "../components/Feedback";
-import { KpiCard } from "../components/KpiCard";
-import { fetchAnalyticsOverview, exportUrl, type AnalyticsOverview } from "../services/analytics";
-import type { ReactNode } from "react";
-import { isMockMode } from "../services/apiClient";
-import { seriesLooksMeasured } from "../services/analytics";
-import { DEMO_LOCATION_ID } from "../constants/demo";
+import { Bar, Line } from "react-chartjs-2";
+import { getAnalytics } from "../api/endpoints";
+import type { Analytics } from "../api/types";
+import { baseOptions, shortDate } from "../charts/setup";
+import { Async, Card, Empty, ErrorBox, PageHeader, Source } from "../components/ui";
+import { useAsync } from "../hooks/useAsync";
+import { fmt, fmtDate, inr, label } from "../lib/format";
 
-ChartJS.register(ArcElement, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
+const PALETTE = ["#f59e0b", "#38bdf8", "#34d399", "#f472b6", "#a78bfa", "#ef4444", "#facc15", "#94a3b8"];
+const HAZARD_COLOR: Record<string, string> = { flood: "#38bdf8", rain: "#2563eb", fire: "#f97316", fire_danger: "#ef4444", gdacs: "#a78bfa" };
 
-const axis = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: { legend: { labels: { color: "#94a3b8", boxWidth: 10, font: { size: 11 } } } },
-  scales: {
-    x: { ticks: { color: "#64748b", font: { size: 10 } }, grid: { color: "#243044" } },
-    y: { ticks: { color: "#64748b", font: { size: 10 } }, grid: { color: "#243044" } },
-  },
-};
-
-export function AnalyticsPage() {
-  const [disasterType, setDisasterType] = useState("flood");
-  const [severity, setSeverity] = useState("");
-  const [data, setData] = useState<AnalyticsOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params: Record<string, string> = { disaster_type: disasterType };
-      if (isMockMode()) params.location_id = DEMO_LOCATION_ID;
-      if (severity) params.severity = severity;
-      setData(await fetchAnalyticsOverview(params));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load analytics");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (loading && !data) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
-  if (!data) return <EmptyState message="No analytics yet." />;
-
-  const s = data.series;
-  const k = data.kpis;
-
+function Fires({ f }: { f: Analytics["fires"] }) {
+  if (f.status !== "live") return <ErrorBox message={`FIRMS unavailable: ${f.detail ?? ""}`} />;
+  const stacked = baseOptions<"bar">("detections");
+  stacked.scales = { x: { ...stacked.scales?.x, stacked: true }, y: { ...stacked.scales?.y, stacked: true } };
   return (
-    <div className="space-y-4">
-      <Breadcrumbs items={[{ to: "/dashboard", label: "Command dashboard" }, { label: "Disaster analytics" }]} />
-      <p className="text-xs text-slate-500">{data.estimate_label}</p>
-      <div className="flex flex-wrap gap-2 text-xs">
-        <label>
-          Disaster type
-          <select className="ml-1 rounded border border-line bg-black/30 px-2 py-1" value={disasterType} onChange={(e) => setDisasterType(e.target.value)}>
-            <option value="flood">flood</option>
-            <option value="landslide">landslide</option>
-            <option value="cyclone">cyclone</option>
-          </select>
-        </label>
-        <label>
-          Severity
-          <select className="ml-1 rounded border border-line bg-black/30 px-2 py-1" value={severity} onChange={(e) => setSeverity(e.target.value)}>
-            <option value="">all</option>
-            <option value="high">high</option>
-            <option value="medium">medium</option>
-            <option value="severe">severe</option>
-          </select>
-        </label>
-        <button type="button" className="rounded border border-line px-3 py-1" onClick={() => void load()}>
-          Apply filters
-        </button>
-        <a className="rounded border border-amber-500/40 px-3 py-1 text-amber-200" href={exportUrl("analytics")}>
-          Export CSV
-        </a>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Disasters" value={String(k.total_disasters ?? "—")} />
-        <KpiCard
-          label="Affected pop."
-          value={k.population_note === "no live census feed" ? "UNAVAILABLE" : String(k.affected_population ?? "—")}
-          hint={typeof k.population_note === "string" ? k.population_note : undefined}
-        />
-        <KpiCard label="Flooded km²" value={String(k.flooded_area ?? "—")} />
-        <KpiCard label="Alerts" value={String(k.alert_count ?? "—")} />
-        <KpiCard
-          label="Avg response min"
-          value={k.rescue_inventory_available === false ? "UNAVAILABLE" : String(k.average_response_time ?? "—")}
+    <div className="grid gap-3 md:grid-cols-2">
+      <div className="h-64">
+        <Bar
+          data={{
+            labels: (f.days ?? []).map(shortDate),
+            datasets: [
+              { label: "Vegetation / open fires", data: f.vegetation ?? [], backgroundColor: "#f97316" },
+              { label: "Industrial heat sources", data: f.industrial ?? [], backgroundColor: "#475569" },
+            ],
+          }}
+          options={stacked}
         />
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <Chart title={seriesLooksMeasured(s.disaster_frequency) ? "Disaster frequency" : "Disaster frequency — UNAVAILABLE"}>
-          {seriesLooksMeasured(s.disaster_frequency) ? (
-            <Bar data={{ labels: s.labels, datasets: [{ label: "Events", data: s.disaster_frequency, backgroundColor: "#f59e0baa" }] }} options={axis} />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No disaster-frequency series. Zeros are not charted as events.</p>
-          )}
-        </Chart>
-        <Chart title={seriesLooksMeasured(s.risk_trend) ? "Risk trends" : "Risk trends — UNAVAILABLE"}>
-          {seriesLooksMeasured(s.risk_trend) ? (
-            <Line data={{ labels: s.labels, datasets: [{ label: "Risk", data: s.risk_trend, borderColor: "#f59e0b" }] }} options={axis} />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No measured risk-trend series. Zeros are not charted.</p>
-          )}
-        </Chart>
-        <Chart title={seriesLooksMeasured(s.affected_population) && k.population_note !== "no live census feed" ? "Affected population" : "Affected population — UNAVAILABLE"}>
-          {seriesLooksMeasured(s.affected_population) && k.population_note !== "no live census feed" ? (
-            <Bar data={{ labels: s.labels, datasets: [{ label: "People (k)", data: s.affected_population, backgroundColor: "#ef4444aa" }] }} options={axis} />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No census feed. Zeros are not charted as measured impact.</p>
-          )}
-        </Chart>
-        <Chart title={Object.values(s.damage_by_category).some((n) => Number(n) > 0) ? "Damage by category" : "Damage by category — UNAVAILABLE"}>
-          {Object.values(s.damage_by_category).some((n) => Number(n) > 0) ? (
-          <Doughnut
-            data={{
-              labels: Object.keys(s.damage_by_category),
-              datasets: [{ data: Object.values(s.damage_by_category), backgroundColor: ["#38bdf8", "#f97316", "#22c55e"] }],
-            }}
-            options={{ responsive: true, maintainAspectRatio: false }}
-          />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No measured damage inventory to chart.</p>
-          )}
-        </Chart>
-        <Chart title={k.rescue_inventory_available === true ? "Resource utilization" : "Resource utilization — UNAVAILABLE"}>
-          {k.rescue_inventory_available === true ? (
-            <Line data={{ labels: s.labels, datasets: [{ label: "%", data: s.resource_utilization, borderColor: "#34d399" }] }} options={axis} />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No live rescue inventory. Zeros are not charted as utilization.</p>
-          )}
-        </Chart>
-        <Chart title={seriesLooksMeasured(Object.values(s.alert_severity)) ? "Alert severity" : "Alert severity — UNAVAILABLE"}>
-          {seriesLooksMeasured(Object.values(s.alert_severity)) ? (
-          <Doughnut
-            data={{
-              labels: Object.keys(s.alert_severity),
-              datasets: [{ data: Object.values(s.alert_severity), backgroundColor: ["#22c55e", "#eab308", "#f97316", "#ef4444"] }],
-            }}
-            options={{ responsive: true, maintainAspectRatio: false }}
-          />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No alert-severity counts to chart.</p>
-          )}
-        </Chart>
-        <Chart title={seriesLooksMeasured(s.flood_expansion) ? "Flood expansion" : "Flood expansion — UNAVAILABLE"}>
-          {seriesLooksMeasured(s.flood_expansion) ? (
-            <Bar data={{ labels: s.labels, datasets: [{ label: "km²", data: s.flood_expansion, backgroundColor: "#0ea5e9aa" }] }} options={axis} />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No measured flood-area series. Zeros are not charted as expansion.</p>
-          )}
-        </Chart>
-        <Chart title={seriesLooksMeasured(s.response_performance) ? "Response performance" : "Response performance — UNAVAILABLE"}>
-          {seriesLooksMeasured(s.response_performance) ? (
-            <Line data={{ labels: s.labels, datasets: [{ label: "Index", data: s.response_performance, borderColor: "#a78bfa" }] }} options={axis} />
-          ) : (
-            <p className="pt-8 text-center text-xs text-slate-500">No live response-time feed. Zeros are not charted as performance.</p>
-          )}
-        </Chart>
+      <div className="h-64">
+        <Bar
+          data={{
+            labels: Object.keys(f.by_district ?? {}),
+            datasets: [{ label: "Fire detections by district (7 d, excl. industrial)", data: Object.values(f.by_district ?? {}), backgroundColor: "#ef4444" }],
+          }}
+          options={{ ...baseOptions<"bar">(), indexAxis: "y" }}
+        />
       </div>
     </div>
   );
 }
 
-function Chart({ title, children }: { title: string; children: ReactNode }) {
+function Rain({ r }: { r: Analytics["rain"] }) {
+  if (r.status !== "live") return <ErrorBox message={`Open-Meteo unavailable: ${r.detail ?? ""}`} />;
   return (
-    <div className="h-48 rounded border border-line bg-panel p-3">
-      <p className="mb-1 text-[11px] uppercase tracking-widest text-slate-500">{title}</p>
-      <div className="h-[148px]">{children}</div>
+    <div className="grid gap-3 md:grid-cols-[1fr_260px]">
+      <div className="h-64">
+        <Bar
+          data={{
+            labels: (r.dates ?? []).map(shortDate),
+            datasets: [{ label: "Karnataka mean daily rainfall (grey observed, blue forecast)", data: r.state_mean_mm ?? [], backgroundColor: (r.forecast ?? []).map((f) => (f ? "rgba(56,189,248,0.6)" : "rgba(226,232,240,0.7)")) }],
+          }}
+          options={baseOptions<"bar">("mm")}
+        />
+      </div>
+      <div>
+        <p className="mb-1 text-xs text-slate-500">Wettest districts, last 30 days</p>
+        <ul className="space-y-0.5 text-sm">
+          {(r.wettest_30d ?? []).map((d) => (
+            <li key={d.name} className="flex justify-between">
+              <span className="text-slate-300">{d.name}</span>
+              <span className="text-sky-300">{fmt(d.mm)} mm</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function Rivers({ r }: { r: Analytics["rivers"] }) {
+  if (r.status !== "live") return <ErrorBox message={`GloFAS unavailable: ${r.detail ?? ""}`} />;
+  const stations = r.stations ?? [];
+  if (!stations.length) return <Empty>No river data.</Empty>;
+  return (
+    <div className="h-72">
+      <Line
+        data={{
+          labels: stations[0].dates.map(shortDate),
+          datasets: stations.map((s, i) => ({
+            label: s.name,
+            data: s.discharge.map((v) => (v !== null && s.q2 ? Math.round((v / s.q2) * 100) : null)),
+            borderColor: PALETTE[i % PALETTE.length],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            segment: { borderDash: (ctx: { p1DataIndex: number }) => ((s.dates[ctx.p1DataIndex] ?? "") >= s.forecast_from ? [4, 3] : undefined) },
+          })),
+        }}
+        options={baseOptions<"line">("% of 2-year flood discharge")}
+      />
+    </div>
+  );
+}
+
+function AlertHistory({ a }: { a: Analytics["alerts"] }) {
+  const opts = baseOptions<"bar">("alerts raised");
+  opts.scales = { x: { ...opts.scales?.x, stacked: true }, y: { ...opts.scales?.y, stacked: true } };
+  if (!a.total_30d) return <Empty>No alerts raised in the last 30 days.</Empty>;
+  return (
+    <div className="h-56">
+      <Bar
+        data={{
+          labels: a.days.map(shortDate),
+          datasets: Object.entries(a.series).map(([h, v]) => ({ label: label(h), data: v, backgroundColor: HAZARD_COLOR[h] ?? "#94a3b8" })),
+        }}
+        options={opts}
+      />
+    </div>
+  );
+}
+
+export default function AnalyticsPage() {
+  const state = useAsync(getAnalytics, [], 900_000);
+  return (
+    <div className="space-y-3">
+      <PageHeader title="Analytics" subtitle="Trends computed from the live feeds and from what this system has recorded: fire activity, rainfall, river behaviour against flood thresholds, alert history and mapped losses." />
+      <Async state={state} loadingText="Aggregating live feeds…">
+        {(d) => (
+          <>
+            <Card title="Satellite fire activity, last 7 days">
+              <Fires f={d.fires} />
+              <Source>NASA FIRMS VIIRS + MODIS. Industrial = detections inside persistent heat-source clusters.</Source>
+            </Card>
+            <Card title="Rainfall, 30 days observed + 7 days forecast">
+              <Rain r={d.rain} />
+              <Source>Open-Meteo, averaged over the 31 district headquarters.</Source>
+            </Card>
+            <Card title="Rivers relative to their 2-year flood (dashed = forecast)">
+              <Rivers r={d.rivers} />
+              <Source>GloFAS v4 discharge divided by each station's Gumbel 2-year return level. 100% = a flow reached on average once every two monsoons.</Source>
+            </Card>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <Card title={`Alerts raised (30 days: ${d.alerts.total_30d})`}>
+                <AlertHistory a={d.alerts} />
+              </Card>
+              <Card title="Fire detections recorded by this system (24 h rolling)">
+                {d.fire_history.times.length > 1 ? (
+                  <div className="h-56">
+                    <Line
+                      data={{ labels: d.fire_history.times.map((t) => fmtDate(t)), datasets: [{ label: "FIRMS detections in Karnataka, previous 24 h", data: d.fire_history.detections_24h, borderColor: "#f97316", pointRadius: 2 }] }}
+                      options={baseOptions<"line">()}
+                    />
+                  </div>
+                ) : (
+                  <Empty>This history builds up as the backend refreshes every 30 minutes ({d.fire_history.times.length} sample so far).</Empty>
+                )}
+              </Card>
+            </div>
+            <Card title="Mapped losses">
+              {d.analyses.length ? (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-slate-500">
+                    <tr>
+                      <th className="py-1">Analysis</th>
+                      <th>Date</th>
+                      <th className="text-right">Hazard km²</th>
+                      <th className="text-right">Buildings</th>
+                      <th className="text-right">Road km</th>
+                      <th className="text-right">Loss</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.analyses.map((a) => (
+                      <tr key={a.id} className="border-t border-line/50">
+                        <td className="py-1 text-slate-200">
+                          {label(a.kind)} · {a.area_name}
+                        </td>
+                        <td className="text-slate-400">{fmtDate(a.created_at)}</td>
+                        <td className="text-right">{fmt(a.hazard_km2, 2)}</td>
+                        <td className="text-right">{fmt(a.buildings)}</td>
+                        <td className="text-right">{fmt(a.road_km, 1)}</td>
+                        <td className="text-right text-red-300">{inr(a.loss_crore)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <Empty>No satellite analyses yet.</Empty>
+              )}
+            </Card>
+          </>
+        )}
+      </Async>
     </div>
   );
 }
