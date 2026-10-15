@@ -22,7 +22,7 @@ export function isPlottableAlertCoordinate(
   return true;
 }
 
-export function bboxToPolygon(bbox: number[] | undefined | null): GeoJSON.GeoJsonObject | null {
+export function bboxToPolygon(bbox: number[] | undefined | null): GeoJSON.Polygon | null {
   if (!bbox || bbox.length !== 4) return null;
   const [west, south, east, north] = bbox.map(Number);
   if (![west, south, east, north].every((n) => Number.isFinite(n))) return null;
@@ -145,7 +145,7 @@ export function satelliteFootprint(scene: SatelliteImageItem | undefined): GeoJS
   if (!box || typeof box !== "object") return null;
   const g = box as { type?: string };
   if (g.type === "Polygon" || g.type === "MultiPolygon" || g.type === "Feature" || g.type === "FeatureCollection") {
-    return box as GeoJSON.GeoJsonObject;
+    return box as unknown as GeoJSON.GeoJsonObject;
   }
   return null;
 }

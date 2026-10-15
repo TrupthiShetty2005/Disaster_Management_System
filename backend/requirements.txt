@@ -6,9 +6,9 @@ SQLAlchemy==2.0.51
 psycopg2-binary==2.9.10
 python-dotenv==1.2.2
 httpx==0.28.1
-pytest==8.4.1
+pytest==9.0.3
 ruff==0.12.4
 greenlet==3.5.3
 numpy==2.2.6
 opencv-python-headless==4.11.0.86
-python-multipart==0.0.20
+python-multipart==0.0.32

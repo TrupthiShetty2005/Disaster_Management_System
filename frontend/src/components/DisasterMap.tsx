@@ -95,14 +95,29 @@ function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
   return null;
 }
 
-function bindPopup(feature: GisFeature, layer: Layer) {
+/** Popup text comes from OSM tags and alert fields; never pass it to Leaflet as an HTML string. */
+export function popupContent(feature: GisFeature): HTMLElement {
   const p = feature.properties;
-  const html = `<strong>${p.name}</strong><br/>${p.layer}${p.feature_type ? ` · ${p.feature_type}` : ""}${
-    p.osm_id != null ? `<br/>OSM ${p.osm_type || "id"} ${p.osm_id}` : ""
-  }${p.source ? `<br/>Source: ${p.source}` : ""}${p.retrieved_at ? `<br/>Retrieved ${p.retrieved_at}` : ""}${
-    p.status ? ` · ${p.status}` : ""
-  }${p.description ? `<br/>${p.description}` : ""}`;
-  layer.bindPopup(html);
+  const lines = [`${p.layer}${p.feature_type ? ` · ${p.feature_type}` : ""}`];
+  if (p.osm_id != null) lines.push(`OSM ${p.osm_type || "id"} ${p.osm_id}`);
+  if (p.source) lines.push(`Source: ${p.source}`);
+  if (p.retrieved_at) lines.push(`Retrieved ${p.retrieved_at}`);
+  if (p.status) lines[lines.length - 1] += ` · ${p.status}`;
+  if (p.description) lines.push(String(p.description));
+
+  const root = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = String(p.name ?? "");
+  root.appendChild(title);
+  for (const text of lines) {
+    root.appendChild(document.createElement("br"));
+    root.appendChild(document.createTextNode(text));
+  }
+  return root;
+}
+
+function bindPopup(feature: GisFeature, layer: Layer) {
+  layer.bindPopup(popupContent(feature));
 }
 
 function FitControl({

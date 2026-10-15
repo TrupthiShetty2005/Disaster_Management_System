@@ -48,8 +48,9 @@ export function SatelliteOverlayMap({
             return layerStyle(props.name, opacity, intensity);
           }}
           onEachFeature={(feat, layer) => {
-            const name = (feat.properties as { name?: string } | null)?.name ?? "detection";
-            layer.bindPopup(name);
+            const label = document.createElement("span");
+            label.textContent = (feat.properties as { name?: string } | null)?.name ?? "detection";
+            layer.bindPopup(label);
           }}
         />
       ) : null}

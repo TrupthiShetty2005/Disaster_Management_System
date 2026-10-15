@@ -18,6 +18,7 @@ export function useAlertStream(onEvent: () => void) {
       onEventRef.current();
     };
     es.onerror = () => {
+      usingSse = false;
       es.close();
     };
     const poll = window.setInterval(async () => {

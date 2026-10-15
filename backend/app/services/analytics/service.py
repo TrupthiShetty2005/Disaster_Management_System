@@ -117,7 +117,8 @@ class AnalyticsService:
                 "No seeded inventory. Not official statistics or government warnings."
             )
             risk_val = float(flood_risk_pct) if flood_risk_pct is not None else 0.0
-            risk_trend = [max(0.0, risk_val - 12), max(0.0, risk_val - 8), max(0.0, risk_val - 4), max(0.0, risk_val - 2), risk_val]
+            # No stored risk history yet: only the current reading is measured.
+            risk_trend = [0.0, 0.0, 0.0, 0.0, risk_val]
             flood_series = [0.0, 0.0, 0.0, 0.0, flooded]
             response_perf = [0.0, 0.0, 0.0, 0.0, 0.0]
         prios = [] if hide_seeded_operations() else self.db.query(RescuePriority).all()

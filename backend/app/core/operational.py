@@ -98,7 +98,7 @@ def _legacy_demo_signature(alert) -> bool:
         return True
     if "kuttanad" in blob:
         return True
-    if "flood probability 82" in blob or "index 82" in blob:
+    if "flood probability 82" in blob:
         return True
     try:
         lat = float(getattr(alert, "latitude", 0) or 0)
